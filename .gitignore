@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# Environment — .env.example IS committed, it is a required deliverable
+.env
+.env.local
+.env*.local
+!.env.example
+
+# Secrets. Nothing here is expected in this project — the decision engine is
+# deterministic and needs no API keys to run — but an .env.example inviting
+# people to add real values makes a leak one careless `git add -A` away.
+secrets/
+*.pem
+*.key
+
+# Next.js auto-generates these on every build; they are advisory agent notes,
+# not project content.
+AGENTS.md
+CLAUDE.md
+
+# Editors and OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Deploy
+.vercel
+
+# Test output
+coverage/
