@@ -1,0 +1,22 @@
+{
+  "$comment": "nodes=modules, edges=[cause,effect] where cause is imported-by effect. ADD invariants by hand.",
+  "project": ".",
+  "generated": "2026-09-18T23:52:00.000Z",
+  "nodes": [],
+  "edges": [],
+  "invariants": {
+    "no-outcome-without-signals": "An outcome is never returned without the signals that produced it. Every Decision object carries the array of Signals decide() actually read; decide() has no code path that constructs a Decision from a literal or a hardcoded evidence list instead of its own signals argument. Verify by grepping every `return` inside lib/decide/** for a Decision construction and confirming its evidence/signals field traces back to the function's input, plus a unit test asserting decide() called with signals=[] still returns a Decision whose evidence field is the empty array it was given, not omitted or synthesized.",
+    "missing-information-is-named-never-implied": "Missing information is always a first-class, named value (which fact, and who or what can supply it: the counterparty, time, or a human), never represented as an absent field, undefined, or a silent fallback. Verify by grepping lib/decide/** and lib/signals/** for any `?? null`, `?? undefined`, or default-value fallback feeding directly into a Decision's evidence or outcome, and by a test asserting every ask/defer/escalate Decision's `missing` field is present and matches the MissingInformation discriminated union shape, never a bare string or boolean.",
+    "confidence-bar-is-a-function-not-a-constant": "The required-confidence threshold a decision must clear is always computed as requiredConfidence(reversibility, cost) from lib/cost-model/**, never read from a fixed numeric constant compared inline elsewhere. Verify by grepping lib/decide/** for any bare numeric literal (e.g. `confidence > 0.8`) used in a comparison outside requiredConfidence itself, and by a test asserting requiredConfidence returns different values for at least two distinct (reversibility, cost) pairs, proving the bar actually moves.",
+    "no-unreplayable-decision": "No decision is recorded whose outcome cannot be reproduced by re-running decide() on its own recorded inputs. Verify by a test that, for every Decision record produced anywhere (fixtures, demo:domains output, audit store), calls decide(record.inputs) and asserts deep equality with record.outcome, excluding only timestamp/id fields."
+  },
+  "freeze_boundary": [
+    "app/**",
+    "lib/**",
+    "domains/**",
+    "components/**",
+    "*.config.*",
+    "package.json",
+    "tsconfig.json"
+  ]
+}
