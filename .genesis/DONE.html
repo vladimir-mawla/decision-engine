@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DONE — decision-engine</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --ink:#e6edf3; --mut:#8b949e;
+          --ok:#2ea043; --warn:#d29922; --bad:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.55 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:32px 24px 80px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--mut); margin:0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px 18px; margin:12px 0; }
+  .locked { border-left:3px solid var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  code { background:#1f2630; padding:1px 6px; border-radius:5px; font-size:13px; }
+  .gate { display:flex; gap:10px; align-items:flex-start; padding:6px 0; }
+  .box { width:16px; height:16px; border:1.5px solid var(--mut); border-radius:4px; flex:0 0 auto; margin-top:2px; }
+  .done .box { background:var(--ok); border-color:var(--ok); }
+  .done .label { color:var(--mut); text-decoration:line-through; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--mut); }
+  .pill.ok{color:var(--ok);border-color:var(--ok);} .pill.wip{color:var(--warn);border-color:var(--warn);} .pill.todo{color:var(--mut);border-color:var(--mut);}
+  .note { color:var(--mut); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DONE — decision-engine</h1>
+  <p class="sub">The single source of truth for <b>what "done" means</b> and <b>the implementation plan</b>.
+     This file is LOCKED — the driver model may not edit it without explicit user request.
+     Updated: 2026-09-18</p>
+
+  <!-- ───────────── THE LOCKED SPEC ───────────── -->
+  <h2>1 · The Locked Spec (what we are building)</h2>
+  <div class="card locked">
+    <p><b>Cognitive job:</b> Given a proposed action and its context, decide whether to <code>execute</code>
+       it now, <code>ask</code> the counterparty for one named missing fact, <code>defer</code> because the
+       missing thing is time, <code>escalate</code> because no confidence level would justify the cost of
+       being wrong, or <code>refuse</code> because the action should not happen regardless of who asks or how
+       certain anyone is — and produce a full, replayable audit trail for that decision. The hard part is not
+       calling the action; it is knowing when not to. Binary allow/deny is the easy case — <code>ask</code>,
+       <code>defer</code>, and <code>escalate</code> are not failure modes, they are the answer most of the time.</p>
+    <p><b>Inputs:</b> a proposed action (domain, action type, parameters, an estimated cost and reversibility
+       class) plus a set of typed <code>Signal</code>s bearing on it, each carrying its provenance (where it
+       came from), freshness (how old it is), and its own confidence. &nbsp;→&nbsp; <b>Outputs:</b> one of the
+       five outcomes, each surfacing confidence, a risk score, the exact evidence (signals) used, any missing
+       information named explicitly (and who or what can supply it), the action's reversibility class, and an
+       audit record of the inputs, signals, reasoning, and rule that produced it.</p>
+    <p><b>Autonomy level:</b> Fully autonomous for <code>execute</code> — but only inside the confidence bar
+       that the reversibility × cost model sets for that specific action; every other outcome exists precisely
+       because full autonomy stops being appropriate at that point, and deliberately hands control elsewhere:
+       <code>ask</code> to the counterparty, <code>defer</code> to time, <code>escalate</code> to a human,
+       <code>refuse</code> to no one. &nbsp;|&nbsp; <b>Human-in-the-loop points:</b> humans author the
+       cost/reversibility tables and the per-domain policies, and a human owns every <code>escalate</code> after
+       the fact; no human sits inside the per-request decision loop for the other four outcomes — the mapping
+       from signals to outcome is a deterministic function, not an LLM call, precisely so the same inputs always
+       replay to the same outcome.</p>
+    <p><b>Failure tolerance:</b> Fail toward the least reversible-harm outcome. A missing, stale, or
+       unprovenanced signal must push the decision toward <code>ask</code>/<code>defer</code>/<code>escalate</code>,
+       never toward a silently-optimistic <code>execute</code>. There is deliberately no LLM anywhere in the
+       decision path — the engine is a pure function of typed signals, so a decision that could not be
+       reproduced from its own recorded inputs is itself treated as a defect. &nbsp;|&nbsp;
+       <b>Trust boundary:</b> everything offered as context for an action — a claimed identity, a claimed
+       history, a claimed urgency — is untrusted until it arrives as a <code>Signal</code> carrying its source
+       and freshness; a claim with no provenance or one past its freshness threshold is treated as missing
+       information, never as evidence.</p>
+    <p class="note">Filled during Genesis step G0 (Cognitive Design), following the shape used in
+       <code>agent-trust-layer/.genesis/DONE.html</code> — content is project-specific, structure only is borrowed.</p>
+  </div>
+
+  <!-- ───────────── DEFINITION OF DONE ───────────── -->
+  <h2>2 · Definition of Done (binary gates — checked by the VERIFIER, not the maker)</h2>
+  <div class="card">
+    <div class="gate"><span class="box"></span><span class="label">Dependency direction inward, zero cycles <span class="note">(modular-architecture gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label"><code>npm run typecheck</code> clean AND <code>npm test</code> green</span></div>
+    <div class="gate"><span class="box"></span><span class="label">One <code>verify</code> pass by a <b>separate</b> agent/model (L4)</span></div>
+    <div class="gate"><span class="box"></span><span class="label">No <code>context-graph.json</code> invariant violated by the change</span></div>
+    <div class="gate"><span class="box"></span><span class="label">Every decision names the signals it used and the rule that produced it — never a bare outcome <span class="note">(explainability gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">A decision is reproducible: the same recorded inputs yield the same outcome <span class="note">(replay gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">An <code>ask</code> names the specific missing fact; a <code>defer</code> names what it is waiting for; an <code>escalate</code> names why no confidence would suffice <span class="note">(named-outcome gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">No decision path reads a signal without its provenance and freshness <span class="note">(trust-boundary gate)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">The live demo URL returns 200 to an anonymous request <span class="note">(deliverable gate — the brief requires a live demo)</span></span></div>
+    <div class="gate"><span class="box"></span><span class="label">A clean clone plus install plus test passes with no credentials configured <span class="note">(clean-clone gate)</span></span></div>
+    <p class="note">A milestone is DONE only when every box above is checked by the verifier. There is
+       deliberately no LLM in the decision path, so any generic "LLM schema-validation" gate from a template
+       does not apply here and was dropped.</p>
+  </div>
+
+  <!-- ───────────── IMPLEMENTATION PLAN ───────────── -->
+  <h2>3 · Implementation Plan (the work, sliced into milestones)</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>#</th><th>Milestone</th><th>Phase</th><th>Demo command (proves it works)</th><th>Loops</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>M1</td><td>Contracts: the five outcomes and the cost model</td><td>BUILD</td><td><code>npm test -- contracts</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M2</td><td>Deploy a live skeleton to Vercel</td><td>DEPLOY</td><td><code>curl -sf $DEPLOY_URL/api/health</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M3</td><td>Signals: typed evidence with provenance</td><td>BUILD</td><td><code>npm test -- signals</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M4</td><td>The decision engine</td><td>BUILD</td><td><code>npm test -- decide</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M5</td><td>The audit trail</td><td>BUILD</td><td><code>npm test -- audit</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M6</td><td>Three domains with realistic data</td><td>INTEGRATE</td><td><code>npm run demo:domains</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M7</td><td>The failure suite</td><td>VERIFY</td><td><code>npm test -- failures</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M8</td><td>The demo UI</td><td>BUILD</td><td>deployed URL renders a decision and its full reasoning</td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+        <tr><td>M9</td><td>Deliverables</td><td>RELEASE</td><td><code>git clone ... && npm ci && npm run typecheck && npm test</code></td><td>L1, L4</td><td><span class="pill todo">todo</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note">Total token budget = 9 milestones × 150000. Update <span class="pill wip">wip</span> /
+       <span class="pill ok">done</span> as loops complete. This table is mirrored in <code>PLAN.md</code> for the agent to parse.</p>
+  </div>
+
+</div>
+</body>
+</html>
