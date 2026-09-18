@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requiredConfidence } from "../../cost-model/requiredConfidence.js";
+import { requiredConfidence, REQUIRED_CONFIDENCE_TEST_ONLY } from "../../cost-model/requiredConfidence.js";
 import { REVERSIBILITY_LEVELS, type Reversibility } from "../../cost-model/reversibility.js";
 import { parseCostOfBeingWrong, type CostOfBeingWrong } from "../../cost-model/cost.js";
 
@@ -123,5 +123,65 @@ describe("requiredConfidence — the reversibility x cost asymmetry", () => {
     const a = requiredConfidence("reversible-with-delay", cost(2_500));
     const b = requiredConfidence("reversible-with-delay", cost(2_500));
     expect(a).toBe(b);
+  });
+});
+
+/**
+ * The four levels only tell a coherent story ("cheap-and-forgiving asks
+ * less than expensive-and-permanent") if their asymptotes (base + headroom)
+ * are distinct and strictly ordered, and only stay a hard ceiling of 0.99
+ * if the clamp is never actually needed to enforce it. Neither property
+ * was previously asserted anywhere — a future retune of BASE_BAR/HEADROOM
+ * could silently collapse two levels onto the same bar (the exact failure
+ * mode that would undo this model) and nothing would fail. These tests
+ * check both properties directly against the constants themselves via
+ * REQUIRED_CONFIDENCE_TEST_ONLY, not by eyeballing a couple of sample
+ * costs, so a retune that breaks either is caught regardless of which
+ * cost value someone happens to test it with.
+ */
+describe("requiredConfidence — the four levels' asymptotes stay distinct, ordered, and under the ceiling", () => {
+  const { BASE_BAR, HEADROOM, MAX_BAR } = REQUIRED_CONFIDENCE_TEST_ONLY;
+
+  function asymptote(level: Reversibility): number {
+    return BASE_BAR[level] + HEADROOM[level];
+  }
+
+  it("every level's asymptote (base + headroom) is <= MAX_BAR (0.99)", () => {
+    for (const level of REVERSIBILITY_LEVELS) {
+      expect(asymptote(level)).toBeLessThanOrEqual(MAX_BAR);
+    }
+  });
+
+  it("the four asymptotes are strictly increasing across the levels, in scale order", () => {
+    const asymptotes = REVERSIBILITY_LEVELS.map(asymptote);
+    for (let i = 1; i < asymptotes.length; i++) {
+      expect(asymptotes[i], `${REVERSIBILITY_LEVELS[i]} vs ${REVERSIBILITY_LEVELS[i - 1]}`).toBeGreaterThan(
+        asymptotes[i - 1]!,
+      );
+    }
+  });
+
+  it("the Math.min(bar, MAX_BAR) clamp does not engage for any level today", () => {
+    // The cost term is headroom * (1 - e^-x), which is always < headroom
+    // for any finite cost — so the unclamped bar (base + costTerm) is
+    // always < base + headroom = asymptote, and the clamp only ever does
+    // real work if some level's asymptote exceeds MAX_BAR. It does not,
+    // today (checked above) — so Math.min never actually clips a value;
+    // this restates that as "the clamp is a no-op given the constants as
+    // they stand" rather than re-deriving it, to keep this test's intent
+    // legible on its own.
+    for (const level of REVERSIBILITY_LEVELS) {
+      expect(Math.min(asymptote(level), MAX_BAR)).toBe(asymptote(level));
+    }
+
+    // And confirm it holds for requiredConfidence's actual output too, at
+    // a cost deep enough into the exponential's saturation regime that the
+    // bar has stopped moving (see the float-saturation note beside
+    // SCALE_DOLLARS in requiredConfidence.ts): the saturated output equals
+    // the asymptote exactly, for every level, not something clamped lower.
+    for (const level of REVERSIBILITY_LEVELS) {
+      const saturatedBar = requiredConfidence(level, cost(1_000_000_000));
+      expect(saturatedBar).toBe(asymptote(level));
+    }
   });
 });

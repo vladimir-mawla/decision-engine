@@ -103,8 +103,42 @@ const SCALE_DOLLARS: Readonly<Record<Reversibility, number>> = {
   irreversible: 20_000,
 };
 
+/**
+ * KNOWN PROPERTY — float saturation on "reversible-no-trace", not a bug:
+ * with scale 50, `1 - e^(-cost/50)` rounds to exactly 1.0 in 64-bit float
+ * once cost is around $1,900 (e^-38 is below double-precision epsilon
+ * relative to 1), so this level's bar is fixed at exactly its asymptote,
+ * 0.58, for any cost from roughly $1,900 upward — by $2,000 it has
+ * unambiguously stopped moving. That dollar range is realistically
+ * reachable (a "no residue to undo" action can still nominally involve a
+ * few thousand dollars), not an absurd edge case confined to
+ * WORST_CASE_COST. It is a property of this curve's shape at this scale,
+ * not a defect: the bar was already supposed to plateau at 0.58 for this
+ * level; float saturation just makes it hit that plateau exactly, a little
+ * before the real-valued curve mathematically would. Whoever retunes
+ * SCALE_DOLLARS["reversible-no-trace"] later should know the plateau's
+ * location moves with it (a larger scale pushes the saturation point out
+ * to a higher dollar figure) — see the "never decreases... even fully
+ * saturated" test in cost-model.test.ts, which is what actually exercises
+ * this regime. Do not change the curve to fix this; it isn't broken.
+ */
+
 /** Hard ceiling — see "why the bar never hits 1.0" above. */
 const MAX_BAR = 0.99;
+
+/**
+ * Exposed for tests only (lib/contracts/__tests__/cost-model.test.ts): the
+ * raw per-level constants and the ceiling, so a test can check properties
+ * of the *constants themselves* — the four asymptotes (base + headroom)
+ * staying distinct, strictly ordered, and at or under MAX_BAR — without
+ * hand-copying the numbers into the test file and silently drifting out of
+ * sync the next time someone retunes a level. Nothing outside a test
+ * should import this: every real caller gets a bar from
+ * requiredConfidence(reversibility, cost), never these directly
+ * (context-graph.json invariant 3 — this function is the only place
+ * allowed to know how demanding the bar should be).
+ */
+export const REQUIRED_CONFIDENCE_TEST_ONLY = { BASE_BAR, HEADROOM, MAX_BAR } as const;
 
 export function requiredConfidence(
   reversibility: Reversibility,
