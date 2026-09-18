@@ -16,9 +16,26 @@
  * looks like "the action's face value" (this project's `Action` type in
  * lib/contracts has no face-value field at all, precisely so nothing can be
  * tempted to reach for it as a stand-in for cost-of-being-wrong). The brand
- * below means a plain number cannot be assigned where a CostOfBeingWrong is
- * expected without going through parseCostOfBeingWrong — so "I'll just use
- * the transaction amount" fails to compile instead of silently working.
+ * below means a plain number cannot be *assigned* where a CostOfBeingWrong
+ * is expected without going through parseCostOfBeingWrong — so "I'll just
+ * use the transaction amount" fails to compile as a plain assignment,
+ * accidental misuse through `costOfBeingWrong: someAmount` is impossible,
+ * and that is genuinely mechanical, not aspirational.
+ *
+ * What the brand does NOT stop is a deliberate cast: `(x as number) as
+ * CostOfBeingWrong` compiles with zero errors or warnings, because a cast
+ * is an explicit assertion, not an assignment, and TypeScript's structural
+ * typing has no way to refuse it. That is exactly the shortcut a
+ * time-pressured domain implementation could reach for later (M6) instead
+ * of calling parseCostOfBeingWrong. The compiler cannot be made to catch
+ * that cast — so it is caught mechanically a different way instead: the
+ * source-scan test in lib/contracts/__tests__/brand-casts.test.ts fails the
+ * build if `as CostOfBeingWrong` (or `as Confidence`, same reasoning in
+ * lib/contracts/confidence.ts) appears anywhere in lib/ outside the file
+ * that defines the brand. So the true guarantee is layered: impossible by
+ * accident through plain assignment (the compiler), and caught if attempted
+ * deliberately through a cast (the source scan) — not "impossible", full
+ * stop.
  */
 declare const costOfBeingWrongBrand: unique symbol;
 export type CostOfBeingWrong = number & {
