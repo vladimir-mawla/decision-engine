@@ -13,8 +13,35 @@ import type {
  * Real input arrives as JSON, not TypeScript — the compile-time guarantees
  * in action.ts and decision.ts mean nothing to a payload that was never
  * constructed as a TS literal in the first place. Every parser here is a
- * total function: it returns a Result, and it never throws, for any input
- * including the wrong type entirely (a string, an array, null, undefined).
+ * total function: it returns a Result and never throws, for any input,
+ * including the wrong type entirely (a string, an array, null, undefined)
+ * AND including an object whose properties are actively hostile rather
+ * than merely wrong-typed — a getter (own or inherited from the prototype
+ * chain) that throws when read, or a Proxy whose `get` trap throws.
+ *
+ * That guarantee is upheld by reading every field through `readProperty`
+ * below, which wraps the single property access in try/catch: a throwing
+ * accessor is treated exactly like an absent field (the read fails, the
+ * value is `undefined`, and the ordinary "missing/invalid field" error
+ * comes back through the normal Result channel) rather than letting the
+ * exception escape past this module. Two things keep that guarantee
+ * precise rather than an overclaim:
+ *
+ *   - these parsers only ever perform a plain `obj[key]` read — never `in`,
+ *     `Object.keys`/`Object.getOwnPropertyNames`, or a property-descriptor
+ *     lookup — so a Proxy's `has`, `ownKeys`, or `getOwnPropertyDescriptor`
+ *     traps are never invoked by this code at all, throwing or not;
+ *   - every type check on a read value is `typeof`, `Array.isArray`, or an
+ *     equality/`includes` comparison, never an implicit coercion (`+x`,
+ *     string concatenation, a template literal) — so a value with a
+ *     throwing `valueOf`/`toString` is never coerced by this module either;
+ *     it is only ever compared by `typeof`, which cannot invoke either.
+ *
+ * (Real `JSON.parse` output can never contain a getter or a Proxy in the
+ * first place, so this defends against a narrower, deliberately-adversarial
+ * class of input than "JSON" — see lib/contracts/__tests__/validation.test.ts
+ * for the getter/Proxy reproductions this guards against, and their
+ * "structured failure, not a throw" assertions.)
  */
 export type Result<T, E> =
   | { readonly ok: true; readonly value: T }
@@ -29,6 +56,28 @@ export type ActionValidationError =
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The one place that reads a property off untrusted input. `obj[key]` can
+ * throw for reasons that have nothing to do with the shape of the data —
+ * an own or inherited getter that throws, or (for a Proxy) a `get` trap
+ * that throws — so the read is wrapped in try/catch and a failed read
+ * comes back as `{ ok: false }` rather than propagating the exception.
+ * Every caller below treats a failed read exactly like an absent field.
+ */
+function readProperty(obj: Record<string, unknown>, key: string): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
+  try {
+    return { ok: true, value: obj[key] };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Convenience: the value of a defensive read, or `undefined` if the read itself threw — collapsing "threw" into "absent" is exactly the guarantee this module makes. */
+function readField(obj: Record<string, unknown>, key: string): unknown {
+  const result = readProperty(obj, key);
+  return result.ok ? result.value : undefined;
 }
 
 /**
@@ -55,40 +104,45 @@ export function parseAction(raw: unknown): Result<Action, ActionValidationError>
     return { ok: false, error: { kind: "not-an-object", received: raw } };
   }
 
-  if (typeof raw.domain !== "string" || raw.domain.length === 0) {
+  const domain = readField(raw, "domain");
+  if (typeof domain !== "string" || domain.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "domain" } };
   }
-  if (typeof raw.type !== "string" || raw.type.length === 0) {
+  const type = readField(raw, "type");
+  if (typeof type !== "string" || type.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "type" } };
   }
-  if (!isPlainObject(raw.parameters)) {
+  const parameters = readField(raw, "parameters");
+  if (!isPlainObject(parameters)) {
     return {
       ok: false,
       error: { kind: "invalid-field", field: "parameters", reason: "must be a plain object" },
     };
   }
-  if (typeof raw.costOfBeingWrong !== "number") {
+  const costOfBeingWrongRaw = readField(raw, "costOfBeingWrong");
+  if (typeof costOfBeingWrongRaw !== "number") {
     return {
       ok: false,
       error: { kind: "invalid-field", field: "costOfBeingWrong", reason: "must be a number" },
     };
   }
-  const cost = parseCostOfBeingWrong(raw.costOfBeingWrong);
+  const cost = parseCostOfBeingWrong(costOfBeingWrongRaw);
   if (!cost.ok) {
     return { ok: false, error: { kind: "invalid-cost", detail: cost.error } };
   }
-  if (!isReversibility(raw.reversibility)) {
-    return { ok: false, error: { kind: "unknown-reversibility", received: raw.reversibility } };
+  const reversibility = readField(raw, "reversibility");
+  if (!isReversibility(reversibility)) {
+    return { ok: false, error: { kind: "unknown-reversibility", received: reversibility } };
   }
 
   return {
     ok: true,
     value: {
-      domain: raw.domain,
-      type: raw.type,
-      parameters: raw.parameters,
+      domain,
+      type,
+      parameters,
       costOfBeingWrong: cost.value,
-      reversibility: raw.reversibility,
+      reversibility,
     },
   };
 }
@@ -104,32 +158,37 @@ const OUTCOMES = ["execute", "ask", "defer", "escalate", "refuse"] as const;
 
 function parseMissingFact(raw: unknown): Result<MissingFact, DecisionValidationError> {
   if (!isPlainObject(raw)) return { ok: false, error: { kind: "not-an-object", received: raw } };
-  if (typeof raw.fact !== "string" || raw.fact.length === 0) {
+  const fact = readField(raw, "fact");
+  if (typeof fact !== "string" || fact.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "missing.fact" } };
   }
-  if (typeof raw.counterparty !== "string" || raw.counterparty.length === 0) {
+  const counterparty = readField(raw, "counterparty");
+  if (typeof counterparty !== "string" || counterparty.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "missing.counterparty" } };
   }
-  return { ok: true, value: { kind: "fact", fact: raw.fact, counterparty: raw.counterparty } };
+  return { ok: true, value: { kind: "fact", fact, counterparty } };
 }
 
 function parseMissingTime(raw: unknown): Result<MissingTime, DecisionValidationError> {
   if (!isPlainObject(raw)) return { ok: false, error: { kind: "not-an-object", received: raw } };
-  if (typeof raw.waitingOn !== "string" || raw.waitingOn.length === 0) {
+  const waitingOn = readField(raw, "waitingOn");
+  if (typeof waitingOn !== "string" || waitingOn.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "missing.waitingOn" } };
   }
-  if (typeof raw.reconsiderAt !== "string" || raw.reconsiderAt.length === 0) {
+  const reconsiderAt = readField(raw, "reconsiderAt");
+  if (typeof reconsiderAt !== "string" || reconsiderAt.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "missing.reconsiderAt" } };
   }
-  return { ok: true, value: { kind: "time", waitingOn: raw.waitingOn, reconsiderAt: raw.reconsiderAt } };
+  return { ok: true, value: { kind: "time", waitingOn, reconsiderAt } };
 }
 
 function parseMissingJudgment(raw: unknown): Result<MissingJudgment, DecisionValidationError> {
   if (!isPlainObject(raw)) return { ok: false, error: { kind: "not-an-object", received: raw } };
-  if (typeof raw.reason !== "string" || raw.reason.length === 0) {
+  const reason = readField(raw, "reason");
+  if (typeof reason !== "string" || reason.length === 0) {
     return { ok: false, error: { kind: "missing-field", field: "missing.reason" } };
   }
-  return { ok: true, value: { kind: "human-judgment", reason: raw.reason } };
+  return { ok: true, value: { kind: "human-judgment", reason } };
 }
 
 /**
@@ -144,28 +203,32 @@ export function parseDecision(raw: unknown): Result<Decision, DecisionValidation
   if (!isPlainObject(raw)) {
     return { ok: false, error: { kind: "not-an-object", received: raw } };
   }
-  if (typeof raw.outcome !== "string" || !(OUTCOMES as readonly string[]).includes(raw.outcome)) {
-    return { ok: false, error: { kind: "unknown-outcome", received: raw.outcome } };
+
+  const outcome = readField(raw, "outcome");
+  if (typeof outcome !== "string" || !(OUTCOMES as readonly string[]).includes(outcome)) {
+    return { ok: false, error: { kind: "unknown-outcome", received: outcome } };
   }
 
-  const action = parseAction(raw.action);
+  const action = parseAction(readField(raw, "action"));
   if (!action.ok) {
     return { ok: false, error: { kind: "invalid-action", detail: action.error } };
   }
 
-  switch (raw.outcome as Decision["outcome"]) {
+  switch (outcome as Decision["outcome"]) {
     case "execute": {
-      if (typeof raw.confidence !== "number") {
+      const confidenceRaw = readField(raw, "confidence");
+      if (typeof confidenceRaw !== "number") {
         return { ok: false, error: { kind: "missing-field", field: "confidence" } };
       }
-      const confidence = parseConfidence(raw.confidence);
+      const confidence = parseConfidence(confidenceRaw);
       if (!confidence.ok) {
         return { ok: false, error: { kind: "invalid-confidence", field: "confidence", detail: confidence.error } };
       }
-      if (typeof raw.confidenceBar !== "number") {
+      const confidenceBarRaw = readField(raw, "confidenceBar");
+      if (typeof confidenceBarRaw !== "number") {
         return { ok: false, error: { kind: "missing-field", field: "confidenceBar" } };
       }
-      const confidenceBar = parseConfidence(raw.confidenceBar);
+      const confidenceBar = parseConfidence(confidenceBarRaw);
       if (!confidenceBar.ok) {
         return { ok: false, error: { kind: "invalid-confidence", field: "confidenceBar", detail: confidenceBar.error } };
       }
@@ -180,25 +243,26 @@ export function parseDecision(raw: unknown): Result<Decision, DecisionValidation
       };
     }
     case "ask": {
-      const missing = parseMissingFact(raw.missing);
+      const missing = parseMissingFact(readField(raw, "missing"));
       if (!missing.ok) return missing;
       return { ok: true, value: { outcome: "ask", action: action.value, missing: missing.value } };
     }
     case "defer": {
-      const missing = parseMissingTime(raw.missing);
+      const missing = parseMissingTime(readField(raw, "missing"));
       if (!missing.ok) return missing;
       return { ok: true, value: { outcome: "defer", action: action.value, missing: missing.value } };
     }
     case "escalate": {
-      const missing = parseMissingJudgment(raw.missing);
+      const missing = parseMissingJudgment(readField(raw, "missing"));
       if (!missing.ok) return missing;
       return { ok: true, value: { outcome: "escalate", action: action.value, missing: missing.value } };
     }
     case "refuse": {
-      if (typeof raw.reason !== "string" || raw.reason.length === 0) {
+      const reason = readField(raw, "reason");
+      if (typeof reason !== "string" || reason.length === 0) {
         return { ok: false, error: { kind: "missing-field", field: "reason" } };
       }
-      return { ok: true, value: { outcome: "refuse", action: action.value, reason: raw.reason } };
+      return { ok: true, value: { outcome: "refuse", action: action.value, reason } };
     }
   }
 }
