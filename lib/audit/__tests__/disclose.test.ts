@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discloseSignalValue } from "../disclose.js";
+import type { Provenance } from "../../signals/provenance.js";
 import { fixtureSignal, millis, NOW } from "./fixtures.js";
 
 /**
@@ -12,11 +13,21 @@ import { fixtureSignal, millis, NOW } from "./fixtures.js";
  */
 describe("discloseSignalValue — the one deliberate value-disclosure act", () => {
   it("a fresh disclosure carries the real value, age, and confidence", () => {
-    const signal = fixtureSignal({ id: "d1", kind: "customer.balance", value: 42, confidence: 0.8 });
-    const disclosure = discloseSignalValue(signal, millis(24 * 60 * 60 * 1000), NOW);
+    const source: Provenance = { kind: "system", system: "balance-service" };
+    const maxAge = millis(24 * 60 * 60 * 1000);
+    const signal = fixtureSignal({ id: "d1", kind: "customer.balance", value: 42, confidence: 0.8, source });
+    const disclosure = discloseSignalValue(signal, maxAge, NOW);
 
     expect(disclosure.signalId).toBe("d1");
     expect(disclosure.signalKind).toBe("customer.balance");
+    // SWEEP FINDING (see this milestone's audit fix report): `source`,
+    // `requestedMaxAge`, and `disclosedAt` were never asserted anywhere
+    // in this file — a mutation that replaced all three with fixed,
+    // wrong values in disclose.ts survived every test here before these
+    // three lines existed.
+    expect(disclosure.source).toEqual(source);
+    expect(disclosure.requestedMaxAge).toBe(maxAge);
+    expect(disclosure.disclosedAt).toBe(NOW);
     expect(disclosure.reading.status).toBe("fresh");
     if (disclosure.reading.status === "fresh") {
       expect(disclosure.reading.value).toBe(42);
