@@ -164,6 +164,16 @@ and drifting three ways.
   further, only better evidence helps; just needs more or better evidence). The demo UI must render at
   least four visually and textually distinct escalate explanations, branching on `RuleTrace.kind` plus its
   `cleared`/`saturated` fields — and must never infer the cause from `missing.reason` prose.
+- **Requirement construction from request data (carried forward from M7's independent verification):**
+  `MAX_IN_VALUES` (`lib/signals/validation.ts`) caps `in.values.length` only inside `parseValueConstraint`
+  — `decide()` called directly, or a hand-built `Requirement` with an unbounded `in.values` allow-list,
+  accepts any size (verified with 100,000 entries). This was confirmed NOT reachable as of M7: nothing
+  under `app/` calls `decide()` at all, and every domain builds its `Requirement`s in code, never from
+  untrusted input — but M8 is the milestone that changes that, the moment its UI constructs a
+  `Requirement` from anything a request carries. Any `Requirement` M8 builds from request data MUST go
+  through `parseValueConstraint` (or equivalent validation) rather than being constructed directly, because
+  the cap lives only in the parser, not in the `Requirement`/`ValueConstraint` types themselves. This is a
+  requirement for M8's implementation, not a suggestion.
 - **Loops:** L1, L4
 - **Token budget:** 150000
 

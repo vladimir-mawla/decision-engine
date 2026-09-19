@@ -1,4 +1,158 @@
 # CURRENT
+- active_loop: M7 follow-up fixes (four fixes from M7's independent verification, which APPROVED the
+  milestone outright), branch `m7-failures`, built on top of the already-approved M7 state. Not pushed;
+  `main` untouched.
+- target: FIX 1 [LOW] — the deliberate failure test's own ceiling claim understated itself: it used the
+  project's $50,000 worked example as if it were the boundary, but `requiredConfidence` clamps to
+  `MAX_BAR = 0.99` at every reversibility level, for every cost — the verification proved this concretely
+  at $5,000,000, still `execute`. Added a test proving the $5,000,000 case directly (bar clamps to
+  `MAX_BAR`, decide() still executes on the identical fabricated signal) and revised
+  `tests/failures/part1-deliberate-failure.test.ts`'s header prose so $50,000 reads as illustrative — the
+  project's own headline (reversibility, cost) pair — rather than as the boundary of what breaks. The
+  honest restatement: no stake is high enough to stop a signal that claims 0.99.
+  FIX 2 [LOW] — Part One's framing centered the gap on a `counterparty` self-report, but the verification
+  showed the identical blindness applies to `human`-sourced signals: a hand-built signal merely claiming
+  `Provenance.kind: "human"`, with no actual reviewer behind it, satisfies a human-supplier `Requirement`
+  for a $1,000,000 irreversible action exactly as a genuine review would — a materially worse statement,
+  since the original framing could lead a reader to conclude "require a human source and you are safe."
+  Added a test proving the symmetry (fabricated human-sourced signal executes the transfer; swapping the
+  fabricated name for a different fake one changes nothing) plus a test showing the one opt-in mechanical
+  check this project ships (`checkHumanSupplierAgainstSatisfyingSignal`) returns `null` for this case — it
+  only catches the mirror-image combination. Checked (not assumed) that `system` and `derived` provenance
+  carry the identical shape — plain, unverified strings, nothing anywhere checks them against a real
+  system or derivation — and stated the general rule once in the file's header rather than enumerating
+  cases: `Provenance` is recorded metadata, not an authenticated claim.
+  FIX 3 — `MAX_IN_VALUES` (`lib/signals/validation.ts`) caps `in.values.length` only inside
+  `parseValueConstraint`; `decide()` called directly, or a hand-built `Requirement`, accepts an unbounded
+  allow-list (verified with 100,000 entries), confirmed not currently reachable since nothing under
+  `app/` calls `decide()` and every domain builds `Requirement`s in code. M8 is the milestone that makes
+  this live, the moment its UI constructs a `Requirement` from request data. Added a requirement to M8's
+  row in `.genesis/PLAN.md` (the one exception to the PLAN.md freeze this round, alongside the existing
+  four-escalate-renderings requirement): any `Requirement` M8 builds from request data must go through
+  `parseValueConstraint` (or equivalent validation), never be constructed directly. Provenance (M7's
+  verification) recorded in the row. `.genesis/DONE.html` left untouched.
+  FIX 4 [informational] — defect 2's header comment and original commit message called it a plain
+  "(real defect)", while defects 7 and 9 carry an explicit "HONEST, PARTIAL PIN" qualifier, even though
+  defect 2's own docstring already says it does not re-prove the original fix (the frozen
+  `brand-casts.test.ts` source-scan) and instead verifies a different, downstream thing (fail-closed
+  behavior once the brand is bypassed) — the same shape of honest gap 7 and 9 already name for
+  themselves. Resolved by qualifying defect 2 as "HONEST, PARTIAL PIN" too, with a new paragraph
+  explaining why explicitly, so all three defects use one honesty standard instead of two. No test
+  assertions changed.
+- engine_gaps found: none requiring a change to the frozen engine (`lib/**`, `app/**` genuinely
+  untouched — `git diff main -- lib app` stayed empty throughout, both before and after all four fixes).
+- last_gate: (1) `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 58 test files,
+  541 tests, all passing (was 538 at the start of this round; 3 net new — FIX 1's extreme-cost test, FIX
+  2's two symmetry tests; 0 removed or weakened). (3) `npm test -- failures` — selects 11 files / 63
+  tests (was 60), genuinely narrows and passes. (4) `npm run demo:domains` — 23/23 cases pass, exit 0,
+  unchanged. (5) `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`, `/api/health`).
+  (6) `git diff main -- lib app` — 0 lines; freeze boundary held. (7) `git status --short` — clean after
+  each commit. (8) `git branch --show-current` — `m7-failures`. Never pushed; `main` and
+  `.genesis/DONE.html` untouched throughout; `.genesis/PLAN.md` touched deliberately, per FIX 3's stated
+  exception only.
+- last_action: four commits, one per fix, on `m7-failures`: (1) FIX 1's extreme-cost test and header
+  prose revision in `tests/failures/part1-deliberate-failure.test.ts`, (2) FIX 2's symmetry tests and
+  general-rule prose in the same file (a separate commit, split from FIX 1 by reconstructing the
+  intermediate file state so each commit's diff is exactly one fix), (3) FIX 3's `.genesis/PLAN.md` M8
+  row addition, (4) FIX 4's relabelling of `tests/failures/part2-defect2-brand-cast-bypass.test.ts`.
+- next_action: awaiting the next independent L4 VERIFY on these four follow-ups. Per standing guidance,
+  marking M7 done is standing-OK once an independent APPROVE lands (it already has, for the base
+  milestone); a fresh APPROVE on these four follow-ups is what's pending now. If approved: M8 (the demo
+  UI) is next on `.genesis/PLAN.md`, now carrying forward BOTH the four-escalate-renderings requirement
+  (from M6's verification) AND FIX 3's validated-Requirement-construction requirement (from M7's
+  verification) in its row.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: unspecified for this follow-up (not one of the original 9 milestones)
+- skills_loaded: []
+
+---
+
+## M7 checkpoint, base milestone (preserved as originally written)
+
+- active_loop: M7 (the failure suite), branch `m7-failures`, built from `main`. Not pushed; `main`
+  untouched.
+- target: `tests/failures/**` — three parts. PART ONE, the brief's required deliberate-failure test:
+  "confidence that lies" — an irreversible $50,000 action executes on a single `counterparty`
+  self-report at confidence 0.99, matching `requiredConfidence("irreversible", 50000) ≈ 0.978`'s own
+  documented worked example. Chosen because this project's own source comments
+  (`lib/decide/stakes.ts`'s `isBarSaturated` doc, `lib/signals/provenance.ts`) already name this exact
+  gap — nothing in `requiredConfidence`/`aggregateConfidence`/`isBarSaturated` ever reads a signal's
+  `Provenance.kind`, only its bare confidence number — and deliberately decline to close it, which
+  makes it a property of the mechanism itself rather than an author mistake the engine could be argued
+  to have no duty to catch. Demonstrated concretely (decide() executes), then the audit trail's honest
+  account: the provenance kind survives verbatim in the record (a human COULD reconstruct the problem),
+  replay reproduces the wrong answer exactly (reproducibility is not correctness), and nothing anywhere
+  in `lib/decide`/`lib/audit` discounts a `counterparty`-sourced signal differently from a `human`- or
+  `system`-sourced one — proven directly by running the identical scenario through both source kinds and
+  observing an identical decision.
+  PART TWO — all nine real historical defects turned into permanent regressions, each labelled by
+  milestone in its own file under `tests/failures/`: (1) M1 parseAction/parseDecision hostile-getter/
+  Proxy throw — pinned directly. (2) M1 CostOfBeingWrong brand cast bypass — the actual fix
+  (`lib/contracts/__tests__/brand-casts.test.ts`) is frozen and out of scope to duplicate; this test
+  answers the honest, different question of what happens once the brand IS bypassed (requiredConfidence
+  produces a non-finite/out-of-range bar, which parseConfidence then rejects — decide() still fails
+  closed). (3) M3 stale-gap fabricated `age: 0` — pinned via a real, reachable clock inconsistency
+  (signal validated against one clock, judged against an earlier one). (4) M4 CRITICAL decide(null)
+  throwing from inside its own catch — pinned directly against null/undefined/hostile-Proxy/missing-
+  action inputs. (5) M4 unreachable-escalate overclaim — pinned as behavior (confidence 1.0 always
+  clears a saturated bar, at every reversibility level) plus a wording check on the corrected reason
+  text. (6) M4 framework-free guard defeated by a Prettier-wrapped import — the fix lives in frozen
+  `lib/__tests__/framework-free.test.ts`, already part of the baseline; this test corroborates without
+  duplicating (confirms the tokenizer shape shipped, confirms as data-only that a naive line-anchored
+  matcher genuinely misses the three historical evasions). (7) M5 five assertions passing for the wrong
+  reason — HONEST PARTIAL PIN: the defect is about specific frozen test files' own text, unreachable
+  without touching them; this test instead verifies the underlying behavioral property (structural,
+  mutation-resistant: exact SignalSnapshot key set, no `value` key, no function-valued property) via the
+  public API alone. (8) value-constraints metadata-only replay flipping a recorded `ask` into `escalate`
+  — pinned end-to-end with two independent requirements, both without and with `knownSignals`. (9) M6 D7's
+  reversibility rationale that would have collapsed a level — HONEST PARTIAL PIN: the rationale is a
+  human-facing string no runtime path reads, so no behavioral test can pin the argument's soundness;
+  this test guards against the specific retracted argument shape reappearing.
+  PART THREE — new attacks, every attempt reported including the ones that found nothing: saturation-
+  point boundary (binary-searched, not hardcoded); multiple signals of differing freshness/confidence for
+  one requirement; a record replayed after requirements "changed underneath it" (held structurally —
+  replay() has no code path that reads live requirements at all); constraint values `-0`/
+  `Number.MAX_SAFE_INTEGER`/empty string; a prohibition and a value rejection on the same action
+  (prohibition wins, gap analysis never runs); scale (many requirements, 10,000 signals); one signal-kind
+  satisfying one requirement's constraint while violating a contradictory sibling's; the wall clock
+  jumping backwards between recordDecision and replay (held structurally — replay() never reads
+  Date.now()); PLAN.md's own named minimum cases (zero signals, zero requirements, all-stale, directly
+  conflicting signals, an impossible >1 confidence signal). Two honest FINDINGS reported, not fixed: an
+  out-of-range confidence signal that is NOT the limiting one still gets recorded verbatim in the audit
+  trail (extends signal.ts's own documented KNOWN LIMIT one layer further than its disclaimer states);
+  `MAX_IN_VALUES` caps the JSON/audit-boundary parser only, not `evaluateConstraint`/`decide()` itself —
+  a caller building a `Requirement` directly can hand `decide()` an unbounded allow-list. Neither is a
+  stop-the-line defect.
+- engine_gaps found: none requiring a change to the frozen engine (`lib/**`, `app/**` genuinely
+  untouched — `git diff main -- lib app` stayed empty throughout). The two Part Three findings above are
+  reported, not patched, per M7's own instruction to stop and report rather than fix.
+- last_gate: (1) `npm run typecheck` — clean, zero errors, both configs (tests/**/*.ts added to
+  `tsconfig.lib.json`'s include so the new suite is actually typechecked, not silently skipped). (2)
+  `npm test` — 58 test files, 538 tests, all passing (was 478 at the start of this milestone; 60 net
+  new, 0 removed or weakened). (3) `npm test -- failures` — selects 11 files / 60 tests, all under
+  `tests/failures/`, genuinely narrows and passes. (4) `npm run demo:domains` — 23/23 cases pass, exit
+  0, unchanged. (5) `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`,
+  `/api/health`). (6) `git diff main -- lib app` — 0 lines; freeze boundary held. (7)
+  `git status --short` — clean after each commit, no hang. (8) `git branch --show-current` —
+  `m7-failures`. Never pushed; `main` and `.genesis/DONE.html`/`.genesis/PLAN.md` untouched.
+- last_action: thirteen commits on `m7-failures`: (1) wire `tests/failures/**` into `vitest.config.ts`
+  and `tsconfig.lib.json` (both purely additive, same precedent as package.json's own
+  freeze_boundary_notes), (2) shared fixture helpers independent of lib/'s own test infra, (3) Part One
+  (confidence that lies), (4)-(12) one commit per historical defect (M1 x2, M3, M4 x3, M5, value-
+  constraints, M6), (13) Part Three's new attacks.
+- next_action: awaiting the next independent L4 VERIFY on `m7-failures`. If approved: M8 (the demo UI)
+  is next on `.genesis/PLAN.md`, carrying forward the four-distinct-escalate-explanations requirement
+  M6's verification already added to that row.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: 150000 (M7's stated budget)
+- skills_loaded: []
+
+---
+
+## M6 follow-up fixes checkpoint (preserved as originally written)
+
 - active_loop: M6 follow-up fixes (five fixes plus one plan change from M6's independent verification,
   which APPROVED the milestone outright), branch `m6-domains`, built on top of the already-approved M6
   state. Not pushed; `main` untouched.
