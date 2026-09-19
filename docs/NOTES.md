@@ -6,19 +6,27 @@ This project was built loop by loop under a genesis-kit-style process (`.genesis
 plan (`PLAN.md`) sliced into milestones, a rolling checkpoint (`checkpoints/CURRENT.md`), and a strict
 separation between the model that **builds** a milestone (L1 BUILD) and the model that **independently
 verifies** it (L4 VERIFY) before it can be marked done. Every commit in this repository's history carries
-`Co-Authored-By: Claude Opus 5`. **That trailer is not evidence of who drove any milestone — say so
-plainly, because an earlier version of this paragraph read it that way and got it backward.** The trailer
-is a fixed attribution string the orchestrating harness writes on every commit regardless of which model
-actually did the work; it does not distinguish a BUILD commit from a VERIFY finding from an orchestrator's
-own edit, and `git log` alone cannot recover who built what. The real split, the same one across all nine
-milestones: an **Opus 5 orchestrator** wrote each milestone's brief, reviewed the resulting work, and made
-the merge decisions; the **BUILD and VERIFY work itself was done by Sonnet subagents** — a different agent
-for BUILD than for VERIFY on every milestone, per the project's own standing rule ("a separate
-agent/model," per `.genesis/DONE.html`'s own Definition-of-Done gate). M9 (this milestone — documentation
-and verification only, no code) followed the same split. A VERIFY pass's findings are folded back into the
-checkpoint and the ADRs by the next BUILD pass that addresses them, rather than committed under separate
-authorship — so which Sonnet session verified a given milestone isn't visible in `git log` either, only its
-findings are, in the ADRs and in `CURRENT.md`'s history.
+`Co-Authored-By: Claude Opus 5`. **That trailer is not evidence of who drove any milestone — this is worth
+stating plainly, because an earlier version of this paragraph read it that way and got it backward.** The
+trailer is a fixed attribution string the orchestrating harness writes on every commit regardless of which
+model actually did the work; it does not distinguish a BUILD commit from a VERIFY finding from an
+orchestrator's own edit, and `git log` alone cannot recover who built what. `checkpoints/CURRENT.md`'s own
+per-loop `model:` field is more granular than the commit trailer, and by that record BUILD was
+**predominantly Sonnet — but not exclusively.** Sonnet ran BUILD directly for M9 (this milestone), M8's
+follow-up round, both M6 rounds, both M5 rounds, and M4's iteration 3; Opus ran BUILD directly several
+times too — both M7 rounds, both value-constraints fix rounds, and the fix round after M4's one formal
+reject. One entry, M8's base milestone, is annotated in the checkpoint itself as "(per this milestone's
+commit-attribution instruction)" — a sign that even `model:` can sometimes record a convention rather than
+the engine that actually ran, so treat this as the best record available, not as independently proven; no
+artifact in this repository proves which engine executed a given loop. What did hold, checkably, on every
+single milestone is narrower than "Sonnet built everything" and is the claim actually worth making:
+**maker ≠ checker at the agent level** — whichever agent built a milestone never verified it, per the
+project's own standing rule ("a separate agent/model," per `.genesis/DONE.html`'s own Definition-of-Done
+gate). An Opus orchestrator wrote each milestone's brief, reviewed the resulting work, and made the merge
+decisions throughout. A VERIFY pass's findings are folded back into the checkpoint and the ADRs by the
+next BUILD pass that addresses them, rather than committed under separate authorship — so which agent
+verified a given milestone isn't visible in `git log` either, only its findings are, in the ADRs and in
+`CURRENT.md`'s history.
 
 ## Key decisions, and why
 
