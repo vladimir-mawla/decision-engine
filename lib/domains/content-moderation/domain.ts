@@ -297,7 +297,10 @@ const m6: DomainCase = {
     "trust changes this outcome — it is refused the same way for any evidence attached.",
   reversibilityRationale:
     "Irreversible: a legally mandated takedown is treated as permanent — the content is removed and the " +
-    "removal is reported per the underlying legal obligation, with no path back to \"visible again.\"",
+    "removal is reported per the underlying legal obligation, with no path back to \"visible again.\" " +
+    "Like R6 (refund-approval) and D6 (code-deploy), this label is irrelevant to the outcome here: the " +
+    "mandatory-legal-takedown prohibition refuses this case outright, before reversibility — or cost, or " +
+    "any signal at all — is ever read.",
   action: moderationAction(20_000, "irreversible", "moderation.legalTakedown", {
     postId: "PST-90601",
     authorId: "usr-19203",
