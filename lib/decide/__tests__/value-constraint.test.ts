@@ -246,3 +246,60 @@ describe("decide() — fail closed for a value constraint, exactly like every ot
     expect(result.outcome).toBe("execute");
   });
 });
+
+/**
+ * FIX 2 (independent verification follow-up): every operator other than
+ * `in` is exercised end-to-end THROUGH `decide()` somewhere in this file
+ * (`equals` via `FRAUD_REQUIREMENT` above; `lte`/`gte` in
+ * lib/signals/__tests__/gap-analysis.test.ts, which is unit-level, not
+ * through decide() either — but this describe block closes the gap for
+ * `in` specifically). Before this test existed, `in`'s allow-list-vs-
+ * value-membership check (constraint.ts's `evaluateConstraint`, case
+ * `"in"`) had ONLY unit-level coverage
+ * (lib/signals/__tests__/constraint.test.ts,
+ * lib/signals/__tests__/gap-analysis.test.ts) — a mutation of that one
+ * line (calling `.includes` on the actual value instead of on the
+ * allow-list — substring semantics instead of membership) broke only 2
+ * of 416 tests, both at the unit level, and nothing that exercises the
+ * full decision pipeline. This describe block is the missing end-to-end
+ * layer: it proves a moderation-category `in` constraint actually
+ * changes `decide()`'s own outcome, satisfied and violated, the same way
+ * `FRAUD_REQUIREMENT`'s `equals` constraint already does above.
+ */
+describe("decide() — the 'in' operator, satisfied and violated, exercised end-to-end", () => {
+  const MODERATION_REQUIREMENT: Requirement = fixtureRequirement({
+    signalKind: "moderation.classification",
+    description: "the moderation classification for this content",
+    minConfidence: 0.8,
+    maxAgeMs: 24 * 60 * 60 * 1000,
+    supplier: { kind: "human", reason: "no automated signal can establish a moderation verdict without a defined constraint" },
+    valueConstraint: { op: "in", values: ["safe", "low-risk"] },
+  });
+
+  function moderationSignal(value: string): ReturnType<typeof fixtureSignal> {
+    return fixtureSignal({
+      kind: "moderation.classification",
+      value,
+      confidence: 0.95,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+  }
+
+  it("value is a member of the allow-list ('low-risk') -> execute", () => {
+    const result = decide(
+      fixtureInput({ requirements: [MODERATION_REQUIREMENT], signals: [moderationSignal("low-risk")] }),
+    );
+    expect(result.outcome).toBe("execute");
+  });
+
+  it("value is NOT a member of the allow-list ('explicit') -> escalate, a value rejection", () => {
+    const result = decide(
+      fixtureInput({ requirements: [MODERATION_REQUIREMENT], signals: [moderationSignal("explicit")] }),
+    );
+    expect(result.outcome).toBe("escalate");
+    if (result.outcome === "escalate") {
+      expect(result.missing.reason).toContain("moderation.classification");
+      expect(result.missing.reason).toContain("constraint");
+    }
+  });
+});
