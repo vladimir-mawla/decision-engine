@@ -190,9 +190,13 @@ Unsoftened, because the previous section already showed the parts that work — 
   in the function would be silently downgraded to `escalate` rather than surfaced as a crash during
   development (ADR 0002, Consequences) — mitigated only by keeping the six decision modules small enough
   that `npm test` catches a logic error before the guard would ever need to swallow one in practice, which
-  is a testing discipline, not a runtime check. The practical effect: an `escalate` in the audit trail
-  cannot be fully distinguished from a masked internal defect — nothing in the record marks the difference
-  between "ownership of this call genuinely belongs to a human" and "the engine hit a bug it was never
-  supposed to hit."
+  is a testing discipline, not a runtime check. The narrower residual: `decide()`'s own return value
+  conflates this case under `MissingJudgment.kind: "human-judgment"` — the same `kind` every ordinary
+  escalate-to-a-human cause also carries — so a consumer reading only `missing.kind`, or pattern-matching
+  `missing.reason` prose, cannot mechanically tell an internal defect apart from a genuine human-judgment
+  call. The audit layer can: `lib/audit/rule.ts`'s `RuleTrace` has a dedicated `{ kind: "internal-error" }`
+  variant, produced by `deriveRule`'s own try/catch and kept distinct from `"gap"`, `"value-rejected"`,
+  and `"confidence-bar"` — asserted directly in `lib/audit/__tests__/rule.test.ts`. So the audit *record*
+  does mark the difference; it's `decide()`'s own immediate return value that doesn't.
 - **No persistence, no signing, no LLM in the decision path — all by design, not oversight.** See
   `docs/NOTES.md`'s "Deliberately out of scope" for the fuller list and the reasoning behind each.
