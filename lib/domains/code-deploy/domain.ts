@@ -397,9 +397,16 @@ const d7: DomainCase = {
     "analysis 90% confident it's safe. It escalates anyway, because once fraudulent transactions clear " +
     "during the exposure window, that loss cannot be recovered by reverting the flag.",
   reversibilityRationale:
-    "Irreversible: reverting the flag stops NEW damage, but does not undo fraudulent transactions that " +
-    "already cleared while the check was off — that harm is permanent, so the action that created the " +
-    "exposure window is treated as irreversible, not merely costly to reverse.",
+    "Irreversible: NOT because damage already occurred once a transaction clears — reverting a wrongly-" +
+    "approved refund also only stops future harm, and that alone would make every reversible-with-cost " +
+    "action in this codebase irreversible too, which would collapse the level entirely. The real " +
+    "distinguishing fact is WHO the money went to and whether any recovery path reaches them: a cleared " +
+    "fraudulent transaction's recipient is an anonymous, uncooperative actor this project has no lever " +
+    "against — no known account to re-charge, no relationship to send to collections, nothing — which is " +
+    "exactly the ADR's own \"money sent to a third party\" example. Contrast refund-approval's cases " +
+    "(reversible-with-cost): there, the counterparty is a known, contactable customer, reachable for a " +
+    "re-charge or a collections cycle. Reverting this flag stops NEW fraud from clearing, but there is no " +
+    "such lever for what already cleared, so the exposure window itself is irreversible.",
   action: deployAction(250_000, "irreversible", {
     repo: "core/payments-service",
     prNumber: 5402,
