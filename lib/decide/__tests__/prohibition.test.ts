@@ -71,6 +71,76 @@ describe("prohibition — checked before evidence, DECISION 2", () => {
     expect(decision!.evidence).toEqual([]);
   });
 
+  /**
+   * FIX 3 (M4 second independent verification). The PROOF test above uses
+   * a `Proxy` that THROWS on any access — but decide()'s outermost
+   * try/catch (FAIL CLOSED, decide.ts) catches any exception and turns it
+   * into an `escalate`. That means moving the prohibition check to AFTER
+   * gap analysis still only breaks that one test, and only incidentally:
+   * `analyzeGaps` throws when handed the radioactive Proxy, decide()'s
+   * fail-closed guard converts that throw into `escalate`, and the test
+   * fails because it expected `refuse` — a side effect of the crash
+   * being caught, not a direct check that requirements/signals were
+   * literally never touched. With ORDINARY (non-throwing) requirements
+   * and signals, the two orderings produce byte-identical output in
+   * every other test, because `analyzeGaps`'s result is simply never
+   * looked at once a prohibition already matched — so nothing else in
+   * this suite would notice the reorder at all.
+   *
+   * This test closes that gap directly: a Proxy that behaves completely
+   * normally (delegates every operation via `Reflect`, never throws) but
+   * COUNTS every property access. With today's correct ordering
+   * (prohibition checked first, decide.ts DECISION 2), a matching
+   * prohibition returns `refuse` without `analyzeGaps` ever running, so
+   * neither array is touched at all — both counters must be exactly
+   * `0`. If the prohibition check were moved after
+   * `analyzeGaps(requirements, signals, now)`, that call alone iterates
+   * `requirements` (a `for...of` loop) and filters `signals`
+   * (`candidatesFor`'s `.filter`), which reads `Symbol.iterator`,
+   * indices, and `.length` on both — driving both counters well above
+   * `0` even though the returned Decision would still, incidentally,
+   * end up `refuse` (nothing throws, so no crash to hide behind). This
+   * is `ordinary inputs` in the literal sense: the requirement and
+   * signal fixtures below are completely normal, valid values — the
+   * counting is purely observational instrumentation on the Proxy
+   * wrapping them, not a hostile payload.
+   */
+  it("ORDERING PROOF (no crash involved): a prohibition match touches requirements/signals exactly zero times, counted directly rather than inferred from a thrown error", () => {
+    const action = sampleAction({ domain: "refund" });
+    const prohibition: Prohibition = {
+      id: "no-refunds-ever",
+      reason: "refunds are prohibited outright for this ordering test",
+      matches: (a) => a.domain === "refund",
+    };
+
+    let requirementsAccessCount = 0;
+    let signalsAccessCount = 0;
+
+    const countingProxy = <T extends object>(target: T, onAccess: () => void): T =>
+      new Proxy(target, {
+        get(t, prop, receiver) {
+          onAccess();
+          return Reflect.get(t, prop, receiver);
+        },
+      });
+
+    const countedRequirements = countingProxy([fixtureRequirement()], () => requirementsAccessCount++);
+    const countedSignals = countingProxy([fixtureSignal()], () => signalsAccessCount++);
+
+    const decision = decide(
+      fixtureInput({
+        action,
+        prohibitions: [prohibition],
+        requirements: countedRequirements,
+        signals: countedSignals,
+      }),
+    );
+
+    expect(decision.outcome).toBe("refuse");
+    expect(requirementsAccessCount).toBe(0);
+    expect(signalsAccessCount).toBe(0);
+  });
+
   it("a non-matching prohibition does not block a normal decision", () => {
     const prohibition: Prohibition = {
       id: "irrelevant-rule",
