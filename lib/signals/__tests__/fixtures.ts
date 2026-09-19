@@ -3,6 +3,7 @@ import { parseCapturedAt, parseMilliseconds, type CapturedAt, type Milliseconds 
 import type { Requirement, Supplier } from "../requirement.js";
 import { createSignal, type Signal } from "../signal.js";
 import type { Provenance } from "../provenance.js";
+import type { ValueConstraint } from "../constraint.js";
 
 /** Fixed "now" for every test in this suite — 2026-09-19, the day this milestone was built. Never read from the wall clock (see time.ts's `systemNow` isolation note). */
 export const NOW = "2026-09-19T12:00:00.000Z" as CapturedAt;
@@ -51,6 +52,7 @@ export function fixtureRequirement(overrides: {
   readonly minConfidence?: number;
   readonly maxAgeMs?: number;
   readonly supplier?: Supplier;
+  readonly valueConstraint?: ValueConstraint;
 } = {}): Requirement {
   return {
     signalKind: overrides.signalKind ?? "customer.identity.verified",
@@ -58,5 +60,6 @@ export function fixtureRequirement(overrides: {
     minConfidence: confidence(overrides.minConfidence ?? 0.8),
     maxAge: millis(overrides.maxAgeMs ?? 24 * HOUR),
     supplier: overrides.supplier ?? { kind: "counterparty", party: "customer" },
+    ...(overrides.valueConstraint !== undefined ? { valueConstraint: overrides.valueConstraint } : {}),
   };
 }

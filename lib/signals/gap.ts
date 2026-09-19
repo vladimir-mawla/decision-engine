@@ -2,6 +2,7 @@ import { ageOf, isFresh, type Age, type CapturedAt } from "./time.js";
 import type { Confidence } from "../contracts/confidence.js";
 import type { Requirement, Supplier } from "./requirement.js";
 import type { Signal } from "./signal.js";
+import { checkValueConstraint, type ConstraintFailure, type ValueConstraint } from "./constraint.js";
 
 /**
  * A Gap is a structured, named record of "this requirement is not
@@ -43,12 +44,29 @@ import type { Signal } from "./signal.js";
  * - `below-confidence` — a fresh signal of the right kind exists, but its
  *   own confidence doesn't clear `requirement.minConfidence`. Carries the
  *   signal and its actual confidence, for the same reason as `stale`.
+ * - `constraint-violated` — added for value constraints (see
+ *   `.genesis/decisions/0004-value-constraints.md`). A signal of the right
+ *   kind exists, IS fresh, and IS confident enough — every check above
+ *   passed — but its value fails `requirement.valueConstraint`. This is
+ *   deliberately NOT missing information: the evidence is present and
+ *   says no. That is also why this variant carries no `supplier`: the
+ *   `counterparty`/`time`/`human` taxonomy (requirement.ts) answers "who
+ *   could supply the missing thing", and nothing is missing here — there
+ *   is no fact to ask a counterparty for, no clock to wait on, no
+ *   judgment call being deferred for lack of evidence. Carries the
+ *   constraint itself (declared POLICY data, safe to record — see
+ *   constraint.ts) and the `evaluation` that failed it, but never the
+ *   signal's actual value; the value stays reachable only through
+ *   `discloseSignalValue` against the original signal (lib/audit/
+ *   disclose.ts), exactly like every other Gap reason.
  *
- * Each variant carries `requirement` and `supplier` so a consumer never
- * has to re-derive "who could resolve this" from the requirement
- * separately — see requirement.ts's own note on why `supplier` is
- * deliberately shaped to map directly onto lib/contracts's
- * MissingFact/MissingTime/MissingJudgment.
+ * Each of the first three variants carries `requirement` and `supplier`
+ * so a consumer never has to re-derive "who could resolve this" from the
+ * requirement separately — see requirement.ts's own note on why
+ * `supplier` is deliberately shaped to map directly onto lib/contracts's
+ * MissingFact/MissingTime/MissingJudgment. `constraint-violated` carries
+ * `requirement` too, for the same "don't re-derive it" reason, but no
+ * `supplier` — see above.
  */
 export type Gap =
   | { readonly reason: "absent"; readonly requirement: Requirement; readonly supplier: Supplier }
@@ -65,6 +83,13 @@ export type Gap =
       readonly supplier: Supplier;
       readonly signal: Signal;
       readonly actualConfidence: Confidence;
+    }
+  | {
+      readonly reason: "constraint-violated";
+      readonly requirement: Requirement;
+      readonly signal: Signal;
+      readonly constraint: ValueConstraint;
+      readonly evaluation: ConstraintFailure;
     };
 
 /**
@@ -119,7 +144,18 @@ function candidatesFor(
  *
  * For each requirement, among the signals whose `kind` matches:
  *   1. If any candidate is BOTH fresh (per `requirement.maxAge`) AND meets
- *      `requirement.minConfidence` — the requirement is satisfied, no Gap.
+ *      `requirement.minConfidence` — AND, if a `valueConstraint` is
+ *      declared, at least one such candidate's value also clears it —
+ *      the requirement is satisfied, no Gap. The constraint is checked
+ *      strictly AFTER freshness and confidence, on that same candidate
+ *      set — never instead of them, never on a candidate that didn't
+ *      already clear both (a stale or below-confidence signal is still
+ *      missing, unchanged, regardless of what its value says).
+ *   1b. Else, if a `valueConstraint` is declared and at least one
+ *      fresh-and-confident candidate exists but NONE clears it — exactly
+ *      one `constraint-violated` Gap, for the fresh-and-confident
+ *      candidate with the highest confidence (the strongest evidence
+ *      that still says no).
  *   2. Else if any candidate is fresh (but none meet the confidence bar) —
  *      exactly one `below-confidence` Gap, for the fresh candidate with
  *      the highest confidence (the closest miss, most useful to surface).
@@ -130,9 +166,9 @@ function candidatesFor(
  *   4. Else (no candidate of this kind at all) — exactly one `absent` Gap.
  *
  * A clock-inconsistent candidate (see time.ts) is never treated as fresh,
- * so it can only ever contribute to case 3 or 4, never case 1 or 2 — a
- * signal whose own timestamp cannot be trusted relative to `now` can never
- * count as satisfying evidence.
+ * so it can only ever contribute to case 3 or 4, never case 1, 1b, or 2 —
+ * a signal whose own timestamp cannot be trusted relative to `now` can
+ * never count as satisfying evidence.
  */
 export function analyzeGaps(
   requirements: readonly Requirement[],
@@ -146,6 +182,36 @@ export function analyzeGaps(
 
     const fresh = candidates.filter((c) => isFresh(c.age, requirement.maxAge));
     const satisfying = fresh.filter((c) => c.signal.confidence >= requirement.minConfidence);
+
+    const { valueConstraint } = requirement;
+    if (valueConstraint !== undefined && satisfying.length > 0) {
+      const clearing = satisfying.filter(
+        (c) => checkValueConstraint(c.signal, valueConstraint, requirement.maxAge, now).satisfied,
+      );
+      if (clearing.length > 0) {
+        continue; // requirement met — no Gap.
+      }
+
+      const closest = satisfying.reduce((best, c) =>
+        c.signal.confidence > best.signal.confidence ? c : best,
+      );
+      const evaluation = checkValueConstraint(closest.signal, valueConstraint, requirement.maxAge, now);
+      // `closest` was drawn from `satisfying` (fresh + confident), and
+      // `clearing` (the filter just above) is empty — so re-evaluating
+      // THIS candidate cannot come back `satisfied: true`. The `if` below
+      // is defense against that invariant ever silently breaking, not a
+      // case this function expects to take.
+      if (!evaluation.satisfied) {
+        gaps.push({
+          reason: "constraint-violated",
+          requirement,
+          signal: closest.signal,
+          constraint: valueConstraint,
+          evaluation,
+        });
+        continue;
+      }
+    }
 
     if (satisfying.length > 0) {
       continue; // requirement met — no Gap.
