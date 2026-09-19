@@ -2,54 +2,67 @@
 - active_loop: L1 BUILD — M4 (`lib/decide/`), branch `m4-decide`, built from `main`. Not pushed;
   `main` untouched.
 - target: M4 — The decision engine (`decide(action, signals)` -> exactly one of the five outcomes)
-- iteration: 1
-- last_gate: All required gates run for real on branch `m4-decide`. (1) `npm run typecheck`
-  (`tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.json --noEmit`) — clean, zero errors, both
-  configs. (2) `npm test` — 24 test files, 223 tests, all passing (was 146 before this milestone;
-  77 net new, all in `lib/decide/__tests__/`; 0 removed or weakened). (3) `npm test -- decide` —
-  selects 12 files / 77 tests, all under `lib/decide/`, genuinely narrows the run and passes.
-  (4) `npm run build` (`next build --webpack`) — succeeds; route table unchanged
-  (`/`, `/_not-found`, `/api/health`). (5) `grep -rniE '^\s*import .*(next|react)' lib/` — no
-  matches; `lib/` stays framework-free. (6) Invariant 3 grep
-  (`grep -rnE '[<>]=?\s*[0-9]*\.[0-9]+|[0-9]+\.[0-9]+\s*[<>]=?' lib/decide/ --include='*.ts' |
-  grep -v __tests__`) — zero hits; every confidence bar in `lib/decide/` traces to
-  `requiredConfidence` (directly, or via two calls to it compared against each other in
-  `stakes.ts`), never a bare literal. (7) `git diff main -- lib/contracts lib/cost-model
-  lib/signals app` — 0 lines; freeze boundary held (this milestone builds only in `lib/decide/`
-  plus this checkpoint and the new ADR). (8) `git status --short` — clean after this pass's
-  commits, no hang. (9) `git branch --show-current` — `m4-decide`. Never pushed; `main` and
-  `.genesis/DONE.html`/`.genesis/PLAN.md` untouched.
-- last_action: Built `lib/decide/` — `decide(input)` maps an Action plus Requirements/Signals to
-  exactly one of the five outcomes (execute/ask/defer/escalate/refuse). Nine small modules
-  (prohibition, precedence, satisfaction, aggregate, stakes, reconsider, reasons, evidence,
-  decide), each owning one of the six mandated design decisions (see
-  `.genesis/decisions/0002-decide-engine.md` for the full argument of each):
-  (1) gap precedence human > counterparty > time; (2) a `Prohibition` concept checked before any
-  evidence is read, proven with a `signals` array that throws on every access; (3) escalate
-  distinguishes "bar unreachable at this stake level" (cost has saturated this reversibility
-  level's ceiling) from "evidence complete but insufficient today"; (4) confidence aggregates by
-  `min`, with the limiting signal named explicitly in `Aggregate.limiting`; (5) `reconsiderAt`
-  derived honestly from `requirement.maxAge` (never a fabricated timestamp); (6) a clock-
-  inconsistent candidate for a `time`-supplied requirement escalates rather than deferring on an
-  undeterminable `reconsiderAt`. Two further named failure modes beyond the six: an action with
-  zero declared requirements fails closed to escalate (never a fail-open execute), and a detected
-  disagreement between `analyzeGaps` and this module's own (stricter, finite-confidence-only)
-  satisfaction check fails closed to escalate rather than trusting either side. All four
-  context-graph.json invariants enforced structurally, not just asserted: `no-outcome-without-
-  signals` via `evidence.ts` being the sole place a Decision literal is constructed (grepped);
-  `missing-information-is-named-never-implied` via named fields on every ask/defer/escalate;
-  `confidence-bar-is-a-function-not-a-constant` via a grep for bare fractional literals; `no-
-  unreplayable-decision` via an explicit `now` argument, a grep for ambient clock/RNG calls, and a
-  same-input-twice determinism test. `lib/contracts/**`, `lib/cost-model/**`, `lib/signals/**`,
-  `app/**` untouched (`git diff main` on all four is empty). Wrote
-  `.genesis/decisions/0002-decide-engine.md`.
-- next_action: M4 built and gated; awaiting independent L4 VERIFY before it can be marked done
-  (per standing guidance: an independent APPROVE is required before this milestone counts as
-  complete, even though marking a milestone done afterward is standing-OK). Once approved, M5 (the
-  audit trail, `lib/audit/**`) is next — it will wrap this milestone's `EvidencedDecision`
-  (`lib/decide/evidence.ts`) with `{ id, recordedAt, rule }` rather than duplicate its evidence
-  field, and its own replay test should call `decide()` directly on recorded inputs, reusing
-  `no-unreplayable-decision`'s proof from this pass rather than re-deriving it.
+- iteration: 2 — first independent L4 VERIFY REJECTED iteration 1 (5 findings: 1 CRITICAL,
+  1 HIGH, 1 MEDIUM, 1 LOW, 1 process gap). This iteration fixes all five; awaiting re-VERIFY.
+- last_gate: All required gates re-run for real on branch `m4-decide` after the five fixes.
+  (1) `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 25 test files,
+  244 tests, all passing (was 223 at the end of iteration 1; 21 net new — 6 for FIX 1's
+  null/undefined/hostile-input coverage, 12 for FIX 3's mutation-hardening of aggregation and the
+  cost-ceiling branch, 8 net for FIX 5's new committed framework-free test file including its
+  self-check cases; 0 removed or weakened). (3) `npm test -- decide` — selects 12 files / 93
+  tests, all under `lib/decide/`, genuinely narrows and passes (the new top-level
+  `lib/__tests__/framework-free.test.ts` correctly falls outside this filter). (4) `npm run build`
+  — succeeds; route table unchanged (`/`, `/_not-found`, `/api/health`). (5) `git diff main --
+  lib/contracts lib/cost-model lib/signals app` — 0 lines; freeze boundary held throughout all
+  five fixes. (6) `git status --short` — clean after each commit, no hang. (7)
+  `git branch --show-current` — `m4-decide`. Never pushed; `main` and
+  `.genesis/DONE.html`/`.genesis/PLAN.md` untouched. (8) Both FIX 3 mutations re-run by hand
+  (apply mutation, run suite, revert): `min`->`max` in `aggregate.ts` now breaks 6 tests (was 1);
+  forcing decide.ts's saturated/insufficient ternary to one branch now breaks 6 tests (was 1).
+- last_action: Fixed all five findings from the independent L4 verification that rejected
+  iteration 1, one commit per fix on `m4-decide`:
+  FIX 1 (CRITICAL) — `decide()`'s catch handler re-read `input.action` to build its escalate
+  fallback, so `decide(null)`/`decide(undefined)`/an all-throwing `Proxy` threw straight out of
+  the function, falsifying its own "never throws" comment. Fixed by reading `input.action`
+  exactly once, defensively, before either try block, into a local the catch handler reuses.
+  Added a new, deliberately non-Decision `InputRejected` result (`outcome: "input-rejected"`, no
+  `action` field — every real Decision outcome requires one, and fabricating a placeholder would
+  misrepresent what was evaluated) for when there is nothing usable to reason about at all.
+  Reverted-and-reproduced both failure modes, then restored, as teeth proof.
+  FIX 2 (HIGH) — `isBarSaturated`'s escalate reason claimed the bar was "unreachable ... 
+  permanently," which the verification's sweep showed firing from ~$1,800 on the most forgiving
+  reversibility tier, and which was never literally true at any cost (Confidence caps at 1.0,
+  every bar caps below that at 0.99 — a signal at 1.0 always clears it). Chose REFRAME over
+  collapse/tighten: kept the two-way escalate distinction (it remains a real, actionable fact —
+  cost ceiling reached vs. headroom remaining) but rewrote the reason text
+  (`unreachableBarReason` renamed `costCeilingReason`) to say only what is computed, and
+  corrected ADR 0002 decision 3 in place with the sweep's actual numbers.
+  FIX 3 (MEDIUM) — mutation testing (`min`->`max` in aggregation; forcing the saturated/
+  insufficient branch) each broke exactly 1 of 223 tests while still producing normal-looking
+  wrong decisions. Added several independent tests per mutation, including an end-to-end pair
+  through `decide()` with multiple requirements for aggregation (previously missing). Both
+  mutations now break 6 tests each, re-verified by hand.
+  FIX 4 (LOW) — documented `aggregate.ts`'s undocumented first-occurrence tie-break, in
+  precedence.ts's own voice.
+  FIX 5 (process gap) — "`lib/` stays framework-free" was enforced only by a prompt-level grep,
+  never committed or run in CI. Added `lib/__tests__/framework-free.test.ts`, matching on the
+  actual import specifier (not the whole line) specifically to avoid the confirmed
+  `fixtureAction`/"react" substring collision the old grep had. Proved teeth: added a real
+  `import ... from "react"` under `lib/decide/`, watched the new test fail naming that file and
+  line, removed it, watched the suite pass clean again.
+  `lib/contracts/**`, `lib/cost-model/**`, `lib/signals/**`, `app/**` untouched throughout
+  (`git diff main` on all four stayed empty after every commit). Updated
+  `.genesis/decisions/0002-decide-engine.md` with a correction to decision 3, a note on decision
+  4's tie-break and mutation-hardening, a third named failure mode for FIX 1, and a note on FIX 5.
+- next_action: M4's five verification findings are fixed and gated; awaiting a fresh independent
+  L4 VERIFY before this iteration can be marked done (per standing guidance: an independent
+  APPROVE is required before this milestone counts as complete, even though marking a milestone
+  done afterward is standing-OK — that gate has not yet been cleared for this iteration). If
+  approved, M5 (the audit trail, `lib/audit/**`) is next — it will wrap this milestone's
+  `EvidencedDecision` (`lib/decide/evidence.ts`) with `{ id, recordedAt, rule }` rather than
+  duplicate its evidence field, and should also decide deliberately how (or whether) to represent
+  FIX 1's new `InputRejected` result in the audit trail, since it is not a `Decision` and has no
+  `action` to record against.
 - model: claude-opus-5
 - tokens_used: ~unspecified (not tracked by this harness)
 - tokens_budget: 150000

@@ -139,7 +139,23 @@ product compounds every requirement's uncertainty and has no single signal
 to blame when asked "why this number." `min` names a **specific limiting
 signal** — `Aggregate.limiting` — which is what makes the resulting
 explanation concrete rather than statistical, and it is exactly what every
-`escalate`/`execute` reason text (`reasons.ts`) reports by name.
+`escalate`/`execute` reason text (`reasons.ts`) reports by name. Ties
+(exactly equal confidence across requirements) break by first occurrence in
+`requirements`/`satisfactions` order — documented directly in
+`aggregate.ts`'s own comment (FIX 4, M4 verification) in the same voice
+decision 1's precedence tie-break uses, so a reader can tell this is
+deliberate rather than an oversight.
+
+**FIX 3 (M4 verification) note on test strength, not on the decision
+itself:** mutation testing found that flipping `min` to `max` broke exactly
+one test, and forcing decide.ts's saturated/insufficient branch to always
+take one side also broke exactly one — both mutations still produced
+fully-formed, normal-looking wrong decisions. Neither `min` nor the branch
+logic changed; `__tests__/aggregation.test.ts` and
+`__tests__/escalate.test.ts` gained several independent tests each
+(including an end-to-end pair through `decide()` with multiple
+requirements, previously missing for aggregation), and both mutations now
+break 6 tests each.
 
 ### 5. `reconsiderAt` — derived from `requirement.maxAge`, always
 
@@ -182,6 +198,30 @@ where an honest answer is impossible, not applied as a blanket override.
   side (`internalInconsistencyReason`); see
   `__tests__/escalate.test.ts`'s "internal inconsistency" case.
 
+## A third named failure mode, added by FIX 1 (M4 verification): `input` itself is unusable
+
+The six decisions and the two failure modes above all presuppose `decide()`
+successfully obtained an `Action` to reason about. The independent
+verification found a case none of them covered: `input` itself — not one of
+its fields — being `null`, `undefined`, or a hostile object whose `action`
+getter throws. The original `decide()` handled a hostile FIELD on an
+otherwise-real `Action`/`Requirement`/`Signal`/`Prohibition` (its outer
+try/catch), but its catch handler rebuilt the escalate fallback by
+re-reading `input.action` — a second read of the very thing that could
+throw — so `decide(null)` and `decide(undefined)` threw straight out of the
+function, falsifying decide.ts's own "never throws, for any input" claim.
+
+The fix reads `input.action` exactly once, defensively, before either try
+block, capturing it in a local the catch handler reuses. Separately: once
+`action` cannot be obtained at all, there is no honest `Decision` to
+return — every one of the five outcomes requires a real `action: Action`
+(frozen, `lib/contracts/decision.ts`), and fabricating a placeholder would
+misrepresent what was evaluated. So this case is not folded into
+`escalate`; `decide()`'s return type is now `EvidencedDecision |
+InputRejected`, where `InputRejected` (`outcome: "input-rejected"`, no
+`action` field) is deliberately NOT one of the five sanctioned Decision
+outcomes and cannot be mistaken for one.
+
 ## Invariants (the four that "finally apply" at M4)
 
 - **`no-outcome-without-signals`** — `lib/decide/evidence.ts` is the ONLY
@@ -204,6 +244,17 @@ where an honest answer is impossible, not applied as a blanket override.
   argument and never reads `Date.now()`/`systemNow()`/`Math.random()`
   (grepped in `__tests__/determinism.test.ts`), plus a behavioral test
   running identical inputs twice and deep-equaling the results.
+
+**FIX 5 (M4 verification):** a fifth project rule, real since M1 —
+"`lib/` stays framework-free" (no Next.js, no React) — had never actually
+been one of the enforced invariants above; it lived only as a `grep` in
+build/verify prompts, with nothing committed or run in CI. Now
+`lib/__tests__/framework-free.test.ts` checks it on every `npm test`. Its
+matcher checks the actual import *specifier* (the quoted module path),
+never the whole source line, specifically because the prior grep
+(`^\s*import .*(next|react)`, case-insensitive) collided with
+`import { fixtureAction } from "./fixtures.js"` — "fixtu-reAct-ion"
+contains "react" as a substring.
 
 ## Consequences
 
