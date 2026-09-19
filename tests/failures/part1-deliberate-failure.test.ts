@@ -3,6 +3,7 @@ import { decide } from "../../lib/decide/decide.js";
 import { recordDecision } from "../../lib/audit/record.js";
 import { replay } from "../../lib/audit/replay.js";
 import { requiredConfidence, REQUIRED_CONFIDENCE_TEST_ONLY } from "../../lib/cost-model/requiredConfidence.js";
+import { checkHumanSupplierAgainstSatisfyingSignal } from "../../lib/signals/index.js";
 import { HOURS, makeAction, makeInput, makeRequirement, makeSignal, mustCapturedAt, NOW } from "./helpers.js";
 
 /**
@@ -248,6 +249,171 @@ describe("PART ONE — deliberate failure: a fabricated 0.99 clears the bar exac
       expect(decision.confidence).toBeCloseTo(0.99, 5);
       expect(decision.confidenceBar).toBe(REQUIRED_CONFIDENCE_TEST_ONLY.MAX_BAR);
     }
+  });
+});
+
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * PART ONE, CONTINUED — THE BLINDNESS IS SYMMETRIC ACROSS PROVENANCE KINDS
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * The describe block above frames the gap around a `counterparty`
+ * self-report — the party the decision is ABOUT, vouching for itself. An
+ * independent verification showed the exact same gap applies, with equal
+ * force, to a `human`-sourced signal: a hand-built `Signal` merely
+ * claiming `Provenance.kind: "human"`, with no actual reviewer behind it
+ * anywhere, satisfies a `human`-supplier `Requirement` for a $1,000,000
+ * irreversible action exactly as a genuine human review would.
+ *
+ * WHY THIS IS A MATERIALLY WORSE STATEMENT THAN "beware counterparty
+ * self-reports", NOT A NARROWER ONE: a reader of Part One's original
+ * framing could reasonably conclude "so require a `human`-sourced signal
+ * for anything this sensitive, and the gap closes." That conclusion is
+ * false. `human`-supplier `Requirement`s exist precisely to force a real
+ * person into the loop for calls no confidence number should settle
+ * (requirement.ts's own `Supplier` doc: `reason` is "why no confidence
+ * number would suffice"). But nothing anywhere checks that the `who`
+ * string on a `human`-sourced `Signal` names an actual person who did
+ * anything — the same way nothing checks that a `system`-sourced
+ * signal's `system` string names a system that actually ran, or that a
+ * `derived` signal's `rule`/`inputs` correspond to a derivation that
+ * really happened.
+ *
+ * THE GENERAL RULE (stated once, not enumerated per kind): `Provenance`
+ * (lib/signals/provenance.ts) is RECORDED METADATA, not an authenticated
+ * claim. Every one of its four variants — `counterparty`, `system`,
+ * `human`, `derived` — carries nothing but plain strings (`party`,
+ * `system`, `who`, `rule`/`inputs`) that whoever builds the `Signal`
+ * simply writes down; nothing in `lib/signals`, `lib/decide`, or
+ * `lib/audit` ever verifies any of them against an actual actor, system,
+ * or derivation. `checkHumanSupplierAgainstSatisfyingSignal` (lib/signals/
+ * supplier-plausibility.ts) is the one narrow, honest, opt-in exception —
+ * and even it only catches the ONE mechanically self-contradictory
+ * combination (a `human`-supplier requirement satisfied by a
+ * `counterparty`-sourced signal). It says nothing at all when the
+ * signal's own `source.kind` already says `"human"`, because there is
+ * nothing mechanically contradictory left to catch — the field simply is
+ * whatever the caller wrote into it. So the field that looks the most
+ * unforgeable — "the source itself claims to BE a human" — is exactly as
+ * self-declared as every other field on every other `Provenance` kind.
+ *
+ * CHECKED, NOT ASSUMED, FOR `system` AND `derived`: reading
+ * provenance.ts's own type confirms the identical shape — `system` is a
+ * bare `{ kind: "system"; system: string }` and `derived` is
+ * `{ kind: "derived"; rule: string; inputs: readonly string[] }`, with no
+ * variant anywhere carrying a signature, a token, or any other field an
+ * authentication mechanism could check. A project-wide search for
+ * anything resembling authentication of a provenance field (an allowlist
+ * of real system names, a registry of real reviewers, anything checking
+ * `who`/`system`/`rule` against a source of truth) turns up nothing in
+ * `lib/` or `app/` — the only code that ever reads `source.kind` at all
+ * is the precedence/gap machinery deciding WHICH requirement a signal
+ * could satisfy, never whether the claim itself is real.
+ */
+describe("PART ONE, CONTINUED — a fabricated human-sourced signal satisfies a human-supplier requirement exactly like a genuine review", () => {
+  const crossBorderAction = makeAction({
+    domain: "payments",
+    type: "transfer.crossBorder",
+    parameters: { transferId: "xfer-90210", amountUsd: 1_000_000 },
+    cost: 1_000_000,
+    reversibility: "irreversible",
+  });
+
+  const humanSignOffRequirement = makeRequirement({
+    signalKind: "compliance.crossBorderSignOff",
+    description: "a human compliance reviewer has signed off on this cross-border transfer",
+    minConfidence: 0.9,
+    maxAgeMs: 24 * HOURS,
+    supplier: {
+      kind: "human",
+      reason: "no automated signal can establish that a human actually reviewed this transfer",
+    },
+  });
+
+  // The lie: nobody named "compliance-reviewer-jsmith" reviewed anything.
+  // This `Signal` was hand-built, exactly like the payee self-report
+  // above, and its `source.kind: "human"` is just as self-declared as the
+  // payee's `source.kind: "counterparty"` was.
+  const fabricatedHumanSignal = makeSignal({
+    id: "sig-fake-compliance-signoff",
+    kind: "compliance.crossBorderSignOff",
+    value: "approved",
+    source: { kind: "human", who: "compliance-reviewer-jsmith" },
+    confidence: 0.99,
+    capturedAtIso: mustCapturedAt(NOW, NOW),
+  });
+
+  it("THE SYMMETRIC BREAK: a hand-built human-sourced signal, with no actual reviewer behind it, clears a $1,000,000 irreversible human-supplier requirement exactly as a genuine review would", () => {
+    const bar = requiredConfidence("irreversible", crossBorderAction.costOfBeingWrong);
+    expect(bar).toBeGreaterThan(0.9);
+
+    const decision = decide(
+      makeInput({
+        action: crossBorderAction,
+        requirements: [humanSignOffRequirement],
+        signals: [fabricatedHumanSignal],
+        now: NOW,
+      }),
+    );
+
+    // decide() never asks "did this reviewer actually exist" — it treats
+    // the human-supplier requirement as satisfied because a fresh,
+    // confident-enough signal of the matching kind exists, full stop.
+    expect(decision.outcome).toBe("execute");
+    if (decision.outcome === "execute") {
+      expect(decision.confidence).toBeCloseTo(0.99, 5);
+    }
+
+    // Changing NOTHING but the fabricated name produces an identical
+    // result — decide() has no way to prefer one unverified `who` string
+    // over another, because it never looks at the string's truth, only
+    // its presence.
+    const differentlyFabricatedSignal = makeSignal({
+      id: "sig-fake-compliance-signoff-2",
+      kind: "compliance.crossBorderSignOff",
+      value: "approved",
+      source: { kind: "human", who: "an-entirely-different-name-nobody-configured-either" },
+      confidence: 0.99,
+      capturedAtIso: mustCapturedAt(NOW, NOW),
+    });
+    const decisionRelabeled = decide(
+      makeInput({
+        action: crossBorderAction,
+        requirements: [humanSignOffRequirement],
+        signals: [differentlyFabricatedSignal],
+        now: NOW,
+      }),
+    );
+    expect(decisionRelabeled.outcome).toBe(decision.outcome);
+  });
+
+  it("THE ONE CHECK THAT EXISTS DOES NOT CATCH THIS: checkHumanSupplierAgainstSatisfyingSignal only flags a counterparty-sourced signal, never a fabricated human-sourced one", () => {
+    // This is the one narrow, opt-in mechanical check this project ships
+    // for exactly this hazard class (supplier-plausibility.ts). It fires
+    // when a human-supplier requirement is satisfied by a
+    // counterparty-sourced signal — a real, mechanical self-contradiction.
+    // It has nothing to say when the signal already claims `kind: "human"`,
+    // because nothing about that combination is mechanically
+    // self-contradictory on its face — which is exactly why the
+    // fabrication above sails through undetected.
+    const hazard = checkHumanSupplierAgainstSatisfyingSignal(humanSignOffRequirement, fabricatedHumanSignal);
+    expect(hazard).toBeNull();
+
+    // For contrast, the ONE case this check does catch: the mirror-image,
+    // mechanically-contradictory combination from Part One's original
+    // framing (a counterparty self-report satisfying a human-supplier
+    // requirement).
+    const counterpartySignal = makeSignal({
+      id: "sig-counterparty-claims-signoff",
+      kind: "compliance.crossBorderSignOff",
+      value: "approved",
+      source: { kind: "counterparty", party: "the transferring customer" },
+      confidence: 0.99,
+      capturedAtIso: mustCapturedAt(NOW, NOW),
+    });
+    const caughtHazard = checkHumanSupplierAgainstSatisfyingSignal(humanSignOffRequirement, counterpartySignal);
+    expect(caughtHazard).not.toBeNull();
+    expect(caughtHazard?.kind).toBe("human-supplier-satisfied-by-counterparty-claim");
   });
 });
 
