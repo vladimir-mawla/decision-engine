@@ -2,6 +2,7 @@ import { parseConfidence } from "../contracts/confidence.js";
 import { requiredConfidence } from "../cost-model/requiredConfidence.js";
 import { analyzeGaps } from "../signals/gap.js";
 import type { Supplier } from "../signals/requirement.js";
+import type { ValueConstraint } from "../signals/constraint.js";
 import {
   aggregateConfidence,
   findProhibition,
@@ -48,6 +49,26 @@ export type RuleTrace =
       /** `null` only for an `absent` gap — there is genuinely no signal to point to. */
       readonly signalId: string | null;
     }
+  /**
+   * `.genesis/decisions/0004-value-constraints.md`. Its own variant, not
+   * a fifth `gapReason` folded into `"gap"` above: a `"constraint-violated"`
+   * Gap (lib/signals/gap.ts) has no `supplierKind` at all (nothing is
+   * missing — the taxonomy doesn't apply), so it cannot honestly fill
+   * that variant's required field. This is also the STRUCTURAL marker
+   * that keeps a value-rejection distinguishable from `decide()`'s two
+   * OTHER escalate causes (below, `"confidence-bar"`'s
+   * `saturated`/`!saturated`) even though all three surface as the same
+   * `outcome: "escalate"` at the frozen `lib/contracts` layer — a
+   * consumer that cares can branch on `RuleTrace.kind` rather than
+   * parsing `missing.reason` prose. Carries `constraint` (declared POLICY
+   * data, safe — see constraint.ts) but never the signal's actual value.
+   */
+  | {
+      readonly kind: "value-rejected";
+      readonly requirementSignalKind: string;
+      readonly signalId: string;
+      readonly constraint: ValueConstraint;
+    }
   | { readonly kind: "no-requirements" }
   | { readonly kind: "internal-inconsistency"; readonly requirementSignalKind: string }
   | {
@@ -75,6 +96,14 @@ export function deriveRule(input: DecideInput): RuleTrace {
       const winner = selectWinningGap(gaps);
       if (winner === null) {
         return { kind: "internal-error" };
+      }
+      if (winner.reason === "constraint-violated") {
+        return {
+          kind: "value-rejected",
+          requirementSignalKind: winner.requirement.signalKind,
+          signalId: winner.signal.id,
+          constraint: winner.constraint,
+        };
       }
       return {
         kind: "gap",

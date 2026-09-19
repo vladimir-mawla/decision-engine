@@ -150,6 +150,49 @@ describe("deriveRule — names the exact rule, agreeing with decide()'s own bran
     }
   });
 
+  it("escalate via a value rejection: its own `value-rejected` RuleTrace kind, not `gap` — names the constraint but never the raw value", () => {
+    const signal = fixtureSignal({ id: "fraud-1", kind: "fraud.assessment", value: "fraudulent — do not disclose this", confidence: 0.95 });
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      valueConstraint: { op: "equals", value: "clear" },
+      supplier: { kind: "human", reason: "should never be reached — value-rejected pre-empts supplier dispatch" },
+    });
+    const input = fixtureInput({ requirements: [requirement], signals: [signal] });
+    const decision = decide(input);
+    const rule = deriveRule(input);
+
+    expect(decision.outcome).toBe("escalate");
+    expect(rule).toEqual({
+      kind: "value-rejected",
+      requirementSignalKind: "fraud.assessment",
+      signalId: "fraud-1",
+      constraint: { op: "equals", value: "clear" },
+    });
+    expect(JSON.stringify(rule)).not.toContain("do not disclose this");
+  });
+
+  it("value-rejected is mechanically distinguishable from confidence-bar escalates by `rule.kind` alone, without parsing prose", () => {
+    const rejectionInput = fixtureInput({
+      requirements: [
+        fixtureRequirement({
+          signalKind: "fraud.assessment",
+          valueConstraint: { op: "equals", value: "clear" },
+        }),
+      ],
+      signals: [fixtureSignal({ kind: "fraud.assessment", value: "fraudulent" })],
+    });
+    const barInput = fixtureInput({
+      action: sampleActionForBar(),
+      requirements: [fixtureRequirement({ minConfidence: 0.1 })],
+      signals: [fixtureSignal({ confidence: 0.5 })],
+    });
+
+    expect(decide(rejectionInput).outcome).toBe("escalate");
+    expect(decide(barInput).outcome).toBe("escalate");
+    expect(deriveRule(rejectionInput).kind).toBe("value-rejected");
+    expect(deriveRule(barInput).kind).toBe("confidence-bar");
+  });
+
   it("property: across many generated cases, deriveRule's `kind` is always consistent with decide()'s outcome", () => {
     const rng = mulberry32(20260919);
     for (let i = 0; i < 300; i++) {

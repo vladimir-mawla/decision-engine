@@ -51,6 +51,34 @@ describe("fail-closed — recordDecision never throws, for any hostile input", (
     expect(record).toBeDefined();
   });
 
+  it("a requirement whose valueConstraint has a throwing getter does not escape recordDecision (value constraints)", () => {
+    const requirement = fixtureRequirement({ valueConstraint: { op: "equals", value: "clear" } });
+    const hostile: Requirement = Object.defineProperty({ ...requirement }, "valueConstraint", {
+      enumerable: true,
+      get() {
+        throw new Error("boom");
+      },
+    });
+
+    let record;
+    expect(() => {
+      record = recordDecision(fixtureInput({ requirements: [hostile] }), ID, RECORDED_AT);
+    }).not.toThrow();
+    expect(record).toBeDefined();
+  });
+
+  it("a signal whose value is a Proxy that throws on every access does not escape recordDecision when a valueConstraint is declared (value constraints)", () => {
+    const requirement = fixtureRequirement({ valueConstraint: { op: "equals", value: "clear" } });
+    const hostileValue = new Proxy({}, { get() { throw new Error("boom"); } });
+    const signal = fixtureSignal({ value: hostileValue });
+
+    let record;
+    expect(() => {
+      record = recordDecision(fixtureInput({ requirements: [requirement], signals: [signal] }), ID, RECORDED_AT);
+    }).not.toThrow();
+    expect(record).toBeDefined();
+  });
+
   it("a Proxy that throws on every access to `input` itself does not escape recordDecision", () => {
     const hostile = new Proxy({}, { get() { throw new Error("boom"); } }) as unknown as DecideInput;
     let record;

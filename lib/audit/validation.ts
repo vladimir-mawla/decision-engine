@@ -1,6 +1,6 @@
 import { parseConfidence, type InvalidConfidence } from "../contracts/confidence.js";
 import { parseAction, parseDecision, type ActionValidationError } from "../contracts/validation.js";
-import { parseProvenance, type ProvenanceValidationError } from "../signals/validation.js";
+import { parseProvenance, parseValueConstraint, type ProvenanceValidationError } from "../signals/validation.js";
 import {
   parseCapturedAt,
   parseMilliseconds,
@@ -9,6 +9,7 @@ import {
   type InvalidMilliseconds,
 } from "../signals/time.js";
 import type { Requirement, Supplier } from "../signals/requirement.js";
+import type { ValueConstraint } from "../signals/constraint.js";
 import type { SignalSnapshot } from "./snapshot.js";
 import type { RuleTrace } from "./rule.js";
 import type { AuditRecord, DecisionAuditRecord, RecordedDecision, RejectedAuditRecord } from "./record.js";
@@ -137,9 +138,35 @@ function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidati
   const supplier = parseSupplier(readField(raw, "supplier"));
   if (!supplier.ok) return supplier;
 
+  // `valueConstraint` is OPTIONAL on `Requirement` (constraint.ts) — only
+  // parsed/attached when the field is actually present, never defaulted to
+  // `undefined` as an explicit key (this project's tsconfig.lib.json turns
+  // on `exactOptionalPropertyTypes`, and the rest of this codebase treats
+  // "key present with value undefined" and "key absent" as genuinely
+  // different, never interchangeable).
+  let valueConstraint: ValueConstraint | undefined;
+  const valueConstraintRaw = readField(raw, "valueConstraint");
+  if (valueConstraintRaw !== undefined) {
+    const parsed = parseValueConstraint(valueConstraintRaw);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: { kind: "invalid-field", field: "requirement.valueConstraint", reason: parsed.error.kind },
+      };
+    }
+    valueConstraint = parsed.value;
+  }
+
   return {
     ok: true,
-    value: { signalKind, description, minConfidence: minConfidence.value, maxAge: maxAge.value, supplier: supplier.value },
+    value: {
+      signalKind,
+      description,
+      minConfidence: minConfidence.value,
+      maxAge: maxAge.value,
+      supplier: supplier.value,
+      ...(valueConstraint !== undefined ? { valueConstraint } : {}),
+    },
   };
 }
 
@@ -221,6 +248,15 @@ function parseRuleTrace(raw: unknown): RuleTrace {
         (signalId === null || typeof signalId === "string")
       ) {
         return { kind: "gap", gapReason, supplierKind, requirementSignalKind, signalId };
+      }
+      return { kind: "internal-error" };
+    }
+    case "value-rejected": {
+      const requirementSignalKind = readField(raw, "requirementSignalKind");
+      const signalId = readField(raw, "signalId");
+      const constraint = parseValueConstraint(readField(raw, "constraint"));
+      if (typeof requirementSignalKind === "string" && typeof signalId === "string" && constraint.ok) {
+        return { kind: "value-rejected", requirementSignalKind, signalId, constraint: constraint.value };
       }
       return { kind: "internal-error" };
     }
