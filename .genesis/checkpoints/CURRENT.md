@@ -1,4 +1,79 @@
 # CURRENT
+- active_loop: M6 follow-up fixes (five fixes plus one plan change from M6's independent verification,
+  which APPROVED the milestone outright), branch `m6-domains`, built on top of the already-approved M6
+  state. Not pushed; `main` untouched.
+- target: FIX 1 [MEDIUM] — the file header and D1's own narrative in `lib/domains/code-deploy/domain.ts`
+  described D1 as clearing its bar on "90%-confidence" evidence; D1's actual decisive confidence is 95%
+  (review approvals + CI). The 90% belongs to a `deploy.staticAnalysis.confidence` signal D1 captures but
+  has no Requirement for, so `decide()` never reads it for D1 — inert. Corrected the header and D1's
+  narrative to say what actually decided the case, and chose KEEP for the inert signal itself (a real
+  system genuinely carrying evidence no policy consumes is worth demonstrating honestly), stated
+  explicitly in three places (header, D1's narrative, and inline comments on D1's requirements array and
+  the signal itself). Swept code-deploy's other cases and content-moderation/refund-approval for the same
+  shape — found none: D7's own `deploy.staticAnalysis.confidence` signal looks similar at a glance but IS
+  consumed there (D7 has a matching Requirement); every other case's captured signals all have matching
+  Requirements or are legitimately absent (ask/defer/escalate-human cases).
+  FIX 2 [MEDIUM] — D7's reversibility rationale said reverting "stops new damage, but does not undo
+  transactions already cleared," a claim equally true of every reversible-with-cost action in this
+  codebase (a reverted refund also only stops future harm), which would collapse the level if taken at
+  face value. Rewrote it to turn on the real distinguishing fact — whether a recovery path exists against
+  a reachable counterparty (a refund's recipient is a known, contactable customer; a cleared fraudulent
+  transaction's recipient is not) — matching the ADR's own "money sent to a third party" irreversible
+  example. Re-checked every other `irreversible` assignment in all three domains against this test: D6
+  (force-push), M6 (legal takedown), and M7 (permanent ban) all argue a flat "no undo exists," never the
+  "stops future harm only" shape that motivated this fix — all three still hold. refund-approval has no
+  irreversible cases at all.
+  FIX 3 [LOW] — content-moderation's M6 (legal takedown, a refuse case where the prohibition fires before
+  reversibility is ever read) lacked the same "this label is inert to the outcome" disclaimer R6 and D6
+  both already carry. Added it, naming R6 and D6 explicitly.
+  FIX 4 [LOW] — `scripts/demo-domains.ts` always passed `knownSignals` to `replay()`, so the demo never
+  showed ADR-0004's own documented limitation (a metadata-only replay of a satisfied value constraint can
+  manufacture a `constraint-violated` Gap and flip the outcome). For `refund-r1-clean-approval` (the same
+  case `lib/domains/__tests__/replay-limitation.test.ts` uses), the demo now prints BOTH replays — with
+  and without `knownSignals` — labeled plainly. Only the WITH-knownSignals result feeds the pass/fail
+  check and exit code, so the demonstrated mismatch is expected and doesn't fail the run.
+  FIX 5 [LOW] — `.genesis/context-graph.json`'s `freeze_boundary` listed `package.json` as frozen, yet M6
+  (like presumably every milestone shipping a runnable demo) added one new npm script — purely additive,
+  non-behavioural. Added `freeze_boundary_notes["package.json"]` stating precisely what's actually
+  protected (dependencies, and existing scripts' behavior) versus what isn't (adding a new script).
+  FIX 6 — M6's verification sharpened an earlier finding: `escalate` has four mechanically distinct causes
+  at the `RuleTrace` layer (`human`, `value-rejected`, `cost-ceiling`, `insufficient-now`) that
+  `Decision.outcome` collapses to one string, and nothing currently forces a future demo UI to
+  distinguish them — a bare "Escalated" label would defeat M8's own 90-second legibility bar. Added a
+  requirement to M8's row in `.genesis/PLAN.md` (the one exception to the PLAN.md freeze this round):
+  the demo UI must render at least four visually/textually distinct escalate explanations, branching on
+  `RuleTrace.kind` plus `cleared`/`saturated`, never on `missing.reason` prose. Provenance (M6's
+  verification) noted directly in the row. `.genesis/DONE.html` left untouched.
+- engine_gaps found: none. All six items are domain-data/docs fixes; `lib/contracts`, `lib/cost-model`,
+  `lib/signals`, `lib/decide`, `lib/audit`, and `app` remain genuinely untouched (zero diff from `main`).
+- last_gate: (1) `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 47 test files,
+  478 tests, all passing (unchanged from the approved M6 baseline — this round is text/wiring fixes, no
+  new test coverage was required or added). (3) `npm run demo:domains` — 23/23 cases pass, exit 0, and
+  now shows the ADR-0004 replay-limitation line for refund-r1-clean-approval ("audit replay (metadata
+  only, no known signals): MISMATCH (expected)"). (4) `npm run build` — succeeds; route table unchanged
+  (`/`, `/_not-found`, `/api/health`). (5) `git diff main -- lib/contracts lib/cost-model lib/signals
+  lib/decide lib/audit app` — 0 lines; freeze boundary held. (6) `grep -rn "missing\.reason" lib/domains/
+  scripts/` — no matches. (7) `git status --short` — clean after each commit. (8)
+  `git branch --show-current` — `m6-domains`. Never pushed; `main` and `.genesis/DONE.html` untouched
+  throughout; `.genesis/PLAN.md` and `.genesis/context-graph.json` touched deliberately, per this round's
+  stated exception for FIX 5/FIX 6 only.
+- last_action: six commits, one per fix, on `m6-domains`: (1) header/D1 narrative + inline comments,
+  (2) D7 rationale rewrite, (3) M6 disclaimer, (4) demo script's dual replay, (5) context-graph.json
+  freeze_boundary_notes, (6) PLAN.md's M8 row addition.
+- next_action: awaiting the next independent L4 VERIFY on `m6-domains`. Per standing guidance, marking
+  M6 done is standing-OK once an independent APPROVE lands (it already has, for the base milestone); a
+  fresh APPROVE on these six follow-ups is what's pending now. If approved: M7 (the failure suite,
+  `tests/failures/**`) is the next milestone on `.genesis/PLAN.md`, unchanged by this round except for
+  FIX 6's addition to M8's row.
+- model: claude-sonnet-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: 150000 (M6's stated budget)
+- skills_loaded: []
+
+---
+
+## M6 checkpoint, base milestone (preserved as originally written)
+
 - active_loop: M6 (three domains with realistic data), branch `m6-domains`, built from `main`. Not
   pushed; `main` untouched. Awaiting L4 VERIFY.
 - target: build refund-approval, code-deploy, and content-moderation on the frozen engine
