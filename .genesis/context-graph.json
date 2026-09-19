@@ -18,5 +18,8 @@
     "*.config.*",
     "package.json",
     "tsconfig.json"
-  ]
+  ],
+  "freeze_boundary_notes": {
+    "package.json": "\"Frozen\" here means its dependencies and every EXISTING script's behavior — not that the file's bytes never change. Every milestone that ships a runnable demo (M6's `demo:domains`, and presumably others before and after it) has added exactly one new npm script to expose it, which is purely additive and non-behavioural: it does not alter, remove, or rename anything already there. That is not a violation of this boundary and should not be reported as one; changing a dependency version, or altering/removing/renaming an EXISTING script, is."
+  }
 }
