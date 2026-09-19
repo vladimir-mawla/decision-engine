@@ -1,54 +1,59 @@
 # CURRENT
-- active_loop: L1 BUILD — M2 built on branch `m2-deploy`, self-run gates all pass; awaiting independent L4 VERIFY and the user's Vercel import (this driver's job was to make the repo deploy-ready and prove it builds, not to deploy it)
-- target: M2 — Deploy a live skeleton to Vercel
-- iteration: 1
-- last_gate: All ten required gates run for real, on branch `m2-deploy`, from a fresh `npm ci`:
-  (1) `npm run typecheck` (runs `tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.json --noEmit`) —
-  clean, zero errors, both configs. (2) `npm test` — 5 files, 89 tests, all passing, unchanged from M1.
-  (3) `npm run build` (`next build --webpack`) — succeeds; route table shows `/` and `/_not-found`
-  static, `/api/health` dynamic (ƒ), confirming `force-dynamic` is honored. (4) `npm run dev` in the
-  background + `curl localhost:3000/api/health` — HTTP 200,
-  `{"status":"ok","commit":"unknown (local dev)","checks":{"costModel":{"pass":true,"elapsedMs":~0.08,
-  "detail":"confidence 0.6 clears reversible-no-trace/$5 (bar 0.508) but not irreversible/$50000 (bar
-  0.979)"}}}`. (5) Fail-closed proof: a scratch `throw` inserted at the top of the cost-model check's
-  try block produced HTTP 503 / `"status":"degraded"` with the thrown message surfaced in
-  `checks.costModel.detail`; reverting it restored HTTP 200 — both curls captured before/after.
-  (6) `grep -rniE '^\s*import .*(next|react)' lib/` → no matches, lib is still framework-free.
-  (7) `git diff main -- lib/` → 0 lines, M1's freeze boundary held through the entire milestone.
-  (8) `git ls-files | grep -E 'node_modules|\.next|\.env$|AGENTS.md|CLAUDE.md'` → no matches, clean.
-  (9) `git status --short` → empty, no hang. (10) `git branch --show-current` → `m2-deploy`. Never
-  pushed; never touched `main`.
-- last_action: Built M2 end-to-end. Installed Next.js 16.3.5 / React 19.3.0 (checked live via `npm
-  view`, pinned exact) as dependencies, @types/react and @types/react-dom as devDependencies. Hit the
-  documented npm 11.5.1 optional-dependency bug twice (each `npm install --save-exact` reporting
-  "removed 3 packages" then vitest failing with "Cannot find native binding") and recovered both times
-  with the documented fix (delete package-lock.json + node_modules, one clean `npm install`, verified
-  with `npm ci && npm test`). Split tsconfig.json into tsconfig.lib.json (M1's original settings,
-  byte-identical to main's tsconfig.json — verified with `diff`) and a new root tsconfig.json for the
-  app (Next.js only discovers tsconfig.json at the root, so that slot had to become the app's; carried
-  over every lib strictness flag that didn't conflict with Next's own requirements, dropped only
-  `exactOptionalPropertyTypes` for this config specifically, named and justified in the commit, not
-  silently). Discovered and fixed a real bundler-level incompatibility beyond the anticipated tsconfig
-  risk: lib/'s frozen internal imports use an explicit ".js" extension pointing at sibling ".ts" files
-  (valid under tsc's "bundler" moduleResolution and under vitest/esbuild, which is why tests always
-  passed) but Turbopack (Next 16's default bundler) fails outright on that pattern with no working
-  config fix found in this Next version; webpack resolves it via `experimental.extensionAlias`, verified
-  working end-to-end (not just compiling) by curling a live dev server. Pinned `--webpack` explicitly in
-  `dev`/`build` scripts so this travels to Vercel via the same `npm run build` it will actually run.
-  Built `/api/health` (Node runtime, `force-dynamic`) that parses two Actions through the real
-  `parseAction` and exercises `requiredConfidence` for the brief's own worked examples
-  (reversible-no-trace/$5 vs irreversible/$50,000), asserting the asymmetry property live and returning
-  503 on failure. Built the landing page and `app/milestones.ts` as the single source of progress (no
-  milestone number hardcoded in page.tsx's prose). Added an honest `.env.example` (no invented keys —
-  this project needs none). Six commits, each with a reasoning-heavy body; did not touch
-  `.genesis/DONE.html` or `.genesis/PLAN.md`; stayed on `m2-deploy`, never pushed.
-- next_action: M2's code is built and self-verified, but per standing guidance an independent L4 VERIFY
-  is still required before this milestone can be marked done (the "independent L4 APPROVE" gate — this
-  was a self-run L1 BUILD pass, not that independent check). Separately, and outside any loop's control:
-  the user needs to actually import the repo at vercel.com/new to get the real public URL M2's success
-  criteria calls for; this driver deliberately did not attempt that deploy itself. Report to the user:
-  exact click-by-click Vercel import steps, that the Next.js framework preset auto-detected default is
-  correct, and that no environment variables need to be set for this milestone.
+- active_loop: L1 BUILD — M3 independently VERIFIED and APPROVED; this pass addressed the three LOW
+  findings from that verification plus one overdue infrastructure item (CI), still on branch
+  `m3-signals`. Per standing guidance (marking a milestone done is standing-OK after an independent L4
+  APPROVE), M3 itself is DONE; this was cleanup on an already-approved milestone, not a rescope, so no
+  additional approval was sought before proceeding.
+- target: M3 — Signals: typed evidence with provenance (APPROVED) + its post-approval follow-ups
+- iteration: 2
+- last_gate: All required gates re-run for real on branch `m3-signals` after all four fixes:
+  (1) `npm run typecheck` (`tsc -p tsconfig.lib.json --noEmit && tsc -p tsconfig.json --noEmit`) — clean,
+  zero errors, both configs. (2) `npm test` — 12 files, 146 tests, all passing (was 141 before this
+  pass; 5 net new — 2 for FIX 1's teeth-proof, 3 for FIX 2's opt-in check; 0 removed or weakened).
+  (3) `npm test -- signals` — still selects and passes the signals suites, still narrows the run.
+  (4) `npm run build` (`next build --webpack`) — succeeds; route table unchanged. (5)
+  `git diff main -- lib/contracts lib/cost-model app` — 0 lines; freeze boundary held. (6)
+  `git status --short` — empty, no hang. (7) `git branch --show-current` — `m3-signals`. Never pushed;
+  never touched `main`; `.genesis/DONE.html` and `.genesis/PLAN.md` untouched. (8) FIX 1's teeth proved
+  directly: reverted `gap.ts` via `git stash`, re-ran the new clock-inconsistency test against the OLD
+  code, and it failed with a literal `+0` where the fixed code produces `{ kind: "clock-inconsistency"
+  }` — then restored the fix and reran green. (9) `.github/workflows/ci.yml` parses as valid YAML via
+  `python3 -c "import yaml; yaml.safe_load(open(...))"`.
+- last_action: Four fixes from M3's independent verification (which APPROVED the milestone), each its
+  own commit. FIX 1: `analyzeGaps`'s `stale` Gap was fabricating `age: 0` when every candidate signal
+  was clock-inconsistent, contradicting its own doc comment's promise of the signal's *actual* age —
+  the exact code/comment-contradiction class that caused three rejections on the previous project.
+  Fixed by changing `Gap`'s `stale.age` field from a bare `Milliseconds` to the existing `Age` union
+  (`{kind:"elapsed",ms}|{kind:"clock-inconsistency"}` from time.ts) rather than inventing a fourth Gap
+  `reason` — keeps the documented "three ways a requirement can fail" invariant intact while making
+  the type honest; a caller can no longer read a number off `age` without narrowing on `kind` first.
+  Audited the rest of lib/signals and lib/contracts for the same fabricated-default pattern (`0`, `??`,
+  `||` standing in for something unmeasured) — found none; only test-fixture defaults and one honestly-
+  labelled `?? "unknown (local dev)"` in app/api/health remain. FIX 2: documented the unvalidated
+  supplier-vs-requirement-nature hazard directly on `Supplier` in requirement.ts, with a concrete
+  wrong-outcome example (a mislabelled compliance-sign-off requirement producing `ask` instead of
+  `escalate`), and added the one honest partial mechanical check that exists —
+  `checkHumanSupplierAgainstSatisfyingSignal` in the new `lib/signals/supplier-plausibility.ts` — which
+  flags a `human`-supplier requirement satisfied by a bare `counterparty`-provenance self-report (the
+  requirement's own "no automated signal suffices" claim self-contradicted), opt-in and NOT wired into
+  `analyzeGaps`. Explicitly documented what it does not and cannot cover (the counterparty/time
+  mislabelling direction; the absent-Gap case) rather than pretending broader coverage. FIX 3: confirmed
+  by direct experiment (temporarily made `derived` Provenance's `inputs` optional) that this guarantee
+  is compile-time-only — `npm test` stayed green at 146/146, `npm run typecheck` failed on an unused
+  `@ts-expect-error`; closed by FIX 4 rather than a code change. FIX 4: added
+  `.github/workflows/ci.yml` — on push to `main` and on pull requests, checks out fresh, `npm ci` only,
+  asserts (via a self-excluding text scan of the workflow's own non-comment lines) that zero secrets
+  are referenced, asserts vitest/vite's `rolldown` native binding survived the install (reproducing and
+  guarding against the exact "Cannot find native binding" failure from npm 11.5.1's optional-dependency
+  bug, confirmed reproducible locally by removing `node_modules/@rolldown/binding-darwin-arm64` and
+  restoring it), then runs `npm run typecheck`, `npm test`, `npm run build`, pinned to Node 24 via
+  `actions/setup-node`.
+- next_action: M3 and its post-approval fixes are complete; only the Loom recording remains outstanding
+  for this milestone's paperwork (per standing memory). M4 (`lib/decide/`) can proceed, consuming
+  `analyzeGaps`/`Requirement`/`Supplier`/`Gap` as-is — none of M4's expected surface changed shape in
+  this pass, only `Gap`'s `stale.age` field type (Milliseconds -> Age) and a new opt-in export
+  (`checkHumanSupplierAgainstSatisfyingSignal`) were added. Per the "deploy early, never last" lesson
+  from the previous project, CI (this pass's FIX 4) landing now rather than at the end is deliberate.
 - model: claude-sonnet-5
 - tokens_used: ~unspecified (not tracked by this harness)
 - tokens_budget: 150000
