@@ -241,6 +241,11 @@ export function StakesExplorer(): JSX.Element {
           The evidence below never changes {"—"} review approvals, CI status, and a static-analysis
           reading, all exactly as recorded for PR #5402 (deploy-d7). Only this action&rsquo;s stakes move.
         </p>
+        <p className="stakes-explorer__note">
+          Every drag re-runs the full decision engine {"—"} outcome, confidence, and audit trail
+          {" "}{"—"} right here in this tab, not on a server: open your browser&rsquo;s Network tab
+          and drag; nothing fires.
+        </p>
       </div>
 
       {record ? (
