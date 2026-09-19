@@ -21,6 +21,6 @@
     "declaration": false,
     "noEmit": true
   },
-  "include": ["lib/**/*.ts", "vitest.config.ts"],
+  "include": ["lib/**/*.ts", "vitest.config.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist", ".next", "coverage"]
 }
