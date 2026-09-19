@@ -20,13 +20,15 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  * cost an outage... conflating 'how big is this action' with 'how bad is it
  * if this action was wrong' ... would make a cheap-looking irreversible
  * action ... look safe to the cost model purely because nothing about the
- * action itself looked expensive." D1 is an 800-line-budget, reversible-
- * no-trace feature-flag toggle to an internal admin tool — genuinely
- * low-stakes, executes easily. D7 is a ONE-LINE config flip — smaller than
- * D1's diff by every face-value measure (lines changed, files touched,
- * review count) — that disables a fraud check on the checkout path. Its
+ * action itself looked expensive." D1 is a reversible-no-trace feature-flag
+ * toggle to an internal admin tool, carrying $800 of `costOfBeingWrong` —
+ * genuinely low-stakes, executes easily. D7 is a config flip that disables a
+ * fraud check on the checkout path. The two are IDENTICAL on every
+ * face-value measure: one line changed, one file touched, two review
+ * approvals, and the same 0.90 static-analysis confidence, each. Nothing a
+ * diff-shaped heuristic can see separates them. What separates them is D7's
  * `costOfBeingWrong` ($250,000, an estimate of fraud exposure during the
- * window before anyone notices) has nothing to do with the diff's size; it
+ * window before anyone notices), which has nothing to do with the diff's size; it
  * comes from what the flag CONTROLS. D1 clears its bar on 95%-confidence
  * review-approval and CI evidence, the only two requirements it declares
  * (a 90%-confidence static-analysis signal is also captured for D1, but no
