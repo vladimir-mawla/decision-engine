@@ -18,7 +18,7 @@ export { findProhibition, type Prohibition } from "./prohibition.js";
 
 export { matchDecision, isInputRejected, type DecisionHandlers } from "./match.js";
 
-export { precedenceRank, selectWinningGap } from "./precedence.js";
+export { precedenceRank, gapPrecedenceRank, selectWinningGap } from "./precedence.js";
 
 export { findSatisfaction, type Satisfaction } from "./satisfaction.js";
 
@@ -37,4 +37,5 @@ export {
   internalErrorReason,
   internalInconsistencyReason,
   unusableInputReason,
+  valueRejectionReason,
 } from "./reasons.js";

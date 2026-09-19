@@ -1,5 +1,6 @@
 import type { Confidence } from "../contracts/confidence.js";
 import type { Milliseconds } from "./time.js";
+import type { ValueConstraint } from "./constraint.js";
 
 /**
  * Supplier is the answer to "if this requirement's evidence is missing,
@@ -116,6 +117,19 @@ export type Supplier =
  *   `customer.verified-identity` requirement for the same decision can
  *   demand very different freshness).
  * - `supplier`       — who/what could supply this if it's absent.
+ * - `valueConstraint` — OPTIONAL (see constraint.ts). Everything above
+ *   this line is about whether evidence EXISTS, is fresh enough, and is
+ *   confident enough — `decide()` never used to read a signal's actual
+ *   VALUE at all (see .genesis/decisions/0004-value-constraints.md for why
+ *   that was a real defect, not a simplification). When present, this is
+ *   checked ONLY after a candidate signal already clears every check
+ *   above — a stale or below-confidence signal is still missing, exactly
+ *   as before; a constraint never runs against evidence that wasn't good
+ *   enough to use in the first place. A signal that IS fresh and
+ *   confident enough, but whose value fails this constraint, is not a gap
+ *   in the `absent`/`stale`/`below-confidence` sense at all — see gap.ts's
+ *   `"constraint-violated"` Gap variant and its own note on why the
+ *   `supplier` taxonomy above deliberately does not apply to it.
  */
 export interface Requirement {
   readonly signalKind: string;
@@ -123,4 +137,5 @@ export interface Requirement {
   readonly minConfidence: Confidence;
   readonly maxAge: Milliseconds;
   readonly supplier: Supplier;
+  readonly valueConstraint?: ValueConstraint;
 }

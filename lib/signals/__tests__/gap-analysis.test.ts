@@ -1,6 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { analyzeGaps } from "../gap.js";
+import { analyzeGaps, type Gap } from "../gap.js";
 import { capturedAt, fixtureRequirement, fixtureSignal, NOW } from "./fixtures.js";
+
+/**
+ * `"constraint-violated"` (added for value constraints — see constraint.ts)
+ * is the one `Gap` reason with no `supplier` at all, so `Gap["supplier"]`
+ * is no longer a valid type. Every gap in THIS file is produced without a
+ * `valueConstraint` anywhere, so it can never actually be that variant —
+ * this helper makes that an assertion the suite itself checks (loudly, if
+ * ever wrong) rather than a silent type assumption.
+ */
+function supplierOf(gap: Gap | undefined): unknown {
+  if (gap === undefined || gap.reason === "constraint-violated") {
+    throw new Error("expected a Gap with a supplier");
+  }
+  return gap.supplier;
+}
 
 describe("analyzeGaps — requirements fully met", () => {
   it("every requirement satisfied by a fresh, sufficiently-confident signal yields no gaps", () => {
@@ -46,7 +61,7 @@ describe("analyzeGaps — exactly one requirement missing", () => {
     expect(gaps).toHaveLength(1);
     expect(gaps[0]?.reason).toBe("absent");
     expect(gaps[0]?.requirement.signalKind).toBe("customer.order.exists");
-    expect(gaps[0]?.supplier).toEqual({ kind: "counterparty", party: "customer" });
+    expect(supplierOf(gaps[0])).toEqual({ kind: "counterparty", party: "customer" });
   });
 });
 
@@ -72,15 +87,15 @@ describe("analyzeGaps — several requirements missing, different suppliers", ()
     expect(gaps).toHaveLength(3);
 
     const bySignalKind = new Map(gaps.map((g) => [g.requirement.signalKind, g]));
-    expect(bySignalKind.get("customer.order.exists")?.supplier).toEqual({
+    expect(supplierOf(bySignalKind.get("customer.order.exists"))).toEqual({
       kind: "counterparty",
       party: "customer",
     });
-    expect(bySignalKind.get("payment.settlement.confirmed")?.supplier).toEqual({
+    expect(supplierOf(bySignalKind.get("payment.settlement.confirmed"))).toEqual({
       kind: "time",
       waitingOn: "the payment processor's settlement window",
     });
-    expect(bySignalKind.get("compliance.sign-off")?.supplier).toEqual({
+    expect(supplierOf(bySignalKind.get("compliance.sign-off"))).toEqual({
       kind: "human",
       reason: "no automated signal can establish regulatory sign-off",
     });
@@ -226,6 +241,255 @@ describe("analyzeGaps — a signal present but below the required confidence", (
     const requirement = fixtureRequirement({ signalKind: "k", minConfidence: 0.8, maxAgeMs: 24 * 60 * 60 * 1000 });
     const atBar = fixtureSignal({ kind: "k", confidence: 0.8, capturedAtIso: "2026-09-19T11:00:00Z" });
     expect(analyzeGaps([requirement], [atBar], NOW)).toEqual([]);
+  });
+});
+
+describe("analyzeGaps — value constraints (.genesis/decisions/0004-value-constraints.md)", () => {
+  it("the headline example: a fresh, confident 'clear' fraud signal satisfies an equals constraint — no gap", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      description: "the fraud assessment for this transfer",
+      minConfidence: 0.8,
+      maxAgeMs: 24 * 60 * 60 * 1000,
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const clean = fixtureSignal({
+      kind: "fraud.assessment",
+      value: "clear",
+      confidence: 0.95,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+
+    expect(analyzeGaps([requirement], [clean], NOW)).toEqual([]);
+  });
+
+  it("the headline example: the SAME requirement, a 'fraudulent' value instead — a constraint-violated gap, not a satisfied requirement", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      description: "the fraud assessment for this transfer",
+      minConfidence: 0.8,
+      maxAgeMs: 24 * 60 * 60 * 1000,
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const fraudulent = fixtureSignal({
+      kind: "fraud.assessment",
+      value: "fraudulent — stolen card",
+      confidence: 0.95,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+
+    const gaps = analyzeGaps([requirement], [fraudulent], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+    if (gaps[0]?.reason === "constraint-violated") {
+      expect(gaps[0].signal.id).toBe(fraudulent.id);
+      expect(gaps[0].constraint).toEqual({ op: "equals", value: "clear" });
+      expect(gaps[0].evaluation).toEqual({ satisfied: false, reason: "violated" });
+      // No `supplier` field at all — the taxonomy doesn't apply.
+      expect("supplier" in gaps[0]).toBe(false);
+    }
+  });
+
+  it("a constraint-violated gap carries no raw value anywhere on it — only the declared constraint and its categorical failure", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const fraudulent = fixtureSignal({
+      kind: "fraud.assessment",
+      value: "fraudulent — stolen card, do not disclose this string",
+      confidence: 0.95,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+
+    const gaps = analyzeGaps([requirement], [fraudulent], NOW);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+    // The Gap itself never surfaces the signal's actual value (it lives in
+    // the Signal's closure, unreachable except via `.read()`), so a naive
+    // string search across the Gap's OWN enumerable content — everything
+    // this test can plainly see without calling `.read()` — never finds
+    // it either.
+    if (gaps[0]?.reason === "constraint-violated") {
+      expect(JSON.stringify(gaps[0].constraint)).not.toContain("stolen card");
+      expect(JSON.stringify(gaps[0].evaluation)).not.toContain("stolen card");
+    }
+  });
+
+  it("staleness still wins: a stale signal is still missing, even if its value would have cleared the constraint", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      maxAgeMs: 30 * 60 * 1000, // 30 minutes
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const staleButClean = fixtureSignal({
+      kind: "fraud.assessment",
+      value: "clear",
+      confidence: 0.99,
+      capturedAtIso: "2026-09-19T10:00:00Z", // 2h before NOW — stale
+    });
+
+    const gaps = analyzeGaps([requirement], [staleButClean], NOW);
+    expect(gaps).toHaveLength(1);
+    // "stale", never "constraint-violated" — the constraint never even
+    // runs against a candidate that wasn't fresh enough.
+    expect(gaps[0]?.reason).toBe("stale");
+  });
+
+  it("confidence still wins: a below-confidence signal is still missing, even if its value would have cleared the constraint", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      minConfidence: 0.9,
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const weakButClean = fixtureSignal({
+      kind: "fraud.assessment",
+      value: "clear",
+      confidence: 0.4,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+
+    const gaps = analyzeGaps([requirement], [weakButClean], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("below-confidence");
+  });
+
+  it("one candidate violates the constraint, a second fresh-and-confident candidate clears it — the requirement IS satisfied (any clearing candidate suffices)", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const fraudulent = fixtureSignal({
+      id: "sig-bad",
+      kind: "fraud.assessment",
+      value: "fraudulent",
+      confidence: 0.9,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+    const clean = fixtureSignal({
+      id: "sig-good",
+      kind: "fraud.assessment",
+      value: "clear",
+      confidence: 0.85,
+      capturedAtIso: "2026-09-19T11:30:00Z",
+    });
+
+    expect(analyzeGaps([requirement], [fraudulent, clean], NOW)).toEqual([]);
+  });
+
+  it("every operator: lte satisfied vs. violated", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "moderation.toxicity-score",
+      valueConstraint: { op: "lte", value: 0.2 },
+    });
+    const low = fixtureSignal({ kind: "moderation.toxicity-score", value: 0.1, capturedAtIso: "2026-09-19T11:00:00Z" });
+    const high = fixtureSignal({ kind: "moderation.toxicity-score", value: 0.9, capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    expect(analyzeGaps([requirement], [low], NOW)).toEqual([]);
+    const gaps = analyzeGaps([requirement], [high], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+  });
+
+  it("every operator: gte satisfied vs. violated", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "code-review.approvals",
+      valueConstraint: { op: "gte", value: 2 },
+    });
+    const enough = fixtureSignal({ kind: "code-review.approvals", value: 3, capturedAtIso: "2026-09-19T11:00:00Z" });
+    const notEnough = fixtureSignal({ kind: "code-review.approvals", value: 1, capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    expect(analyzeGaps([requirement], [enough], NOW)).toEqual([]);
+    const gaps = analyzeGaps([requirement], [notEnough], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+  });
+
+  it("every operator: in satisfied vs. violated", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "moderation.classification",
+      valueConstraint: { op: "in", values: ["safe", "low-risk"] },
+    });
+    const safe = fixtureSignal({ kind: "moderation.classification", value: "low-risk", capturedAtIso: "2026-09-19T11:00:00Z" });
+    const unsafe = fixtureSignal({ kind: "moderation.classification", value: "explicit", capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    expect(analyzeGaps([requirement], [safe], NOW)).toEqual([]);
+    const gaps = analyzeGaps([requirement], [unsafe], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+  });
+
+  it("type-mismatched: a numeric constraint against a non-numeric value is a constraint-violated gap (fails closed, never satisfied, never throws)", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "deploy.blast-radius",
+      valueConstraint: { op: "lte", value: 3 },
+    });
+    const wrongShape = fixtureSignal({
+      kind: "deploy.blast-radius",
+      value: "not-a-number",
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+
+    const gaps = analyzeGaps([requirement], [wrongShape], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+    if (gaps[0]?.reason === "constraint-violated") {
+      expect(gaps[0].evaluation).toEqual({ satisfied: false, reason: "type-mismatch" });
+    }
+  });
+
+  it("a malformed constraint (unknown op) never fabricates a pass — fails closed to constraint-violated", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "k",
+      valueConstraint: { op: "matches-regex" as never, value: ".*" } as never,
+    });
+    const signal = fixtureSignal({ kind: "k", value: "anything", capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    const gaps = analyzeGaps([requirement], [signal], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+    if (gaps[0]?.reason === "constraint-violated") {
+      expect(gaps[0].evaluation).toEqual({ satisfied: false, reason: "malformed" });
+    }
+  });
+
+  it("a constraint whose declared value is a throwing getter or a Proxy fails closed, never throws out of analyzeGaps", () => {
+    const hostileValueConstraint = {
+      op: "equals",
+      get value(): string {
+        throw new Error("radioactive constraint value");
+      },
+    } as unknown as import("../constraint.js").ValueConstraint;
+    const requirement = fixtureRequirement({ signalKind: "k", valueConstraint: hostileValueConstraint });
+    const signal = fixtureSignal({ kind: "k", value: "clear", capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    expect(() => analyzeGaps([requirement], [signal], NOW)).not.toThrow();
+    const gaps = analyzeGaps([requirement], [signal], NOW);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("constraint-violated");
+
+    const proxyConstraint = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("radioactive proxy constraint");
+        },
+      },
+    ) as unknown as import("../constraint.js").ValueConstraint;
+    const requirementWithProxy = fixtureRequirement({ signalKind: "k2", valueConstraint: proxyConstraint });
+    const signal2 = fixtureSignal({ kind: "k2", value: "clear", capturedAtIso: "2026-09-19T11:00:00Z" });
+    expect(() => analyzeGaps([requirementWithProxy], [signal2], NOW)).not.toThrow();
+  });
+
+  it("is still a pure function of its inputs with a valueConstraint declared, and does not mutate them", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const signal = fixtureSignal({ kind: "fraud.assessment", value: "fraudulent", capturedAtIso: "2026-09-19T11:00:00Z" });
+
+    const first = analyzeGaps([requirement], [signal], NOW);
+    const second = analyzeGaps([requirement], [signal], NOW);
+    expect(first).toEqual(second);
   });
 });
 

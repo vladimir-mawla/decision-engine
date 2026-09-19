@@ -29,9 +29,15 @@ they are distinguished by **what is missing and who or what can supply it**:
 - **defer** — the missing thing is **time**. The answer may resolve on its own (a price settles, a status
   updates, a cooldown expires), and waiting costs less than acting wrong now. Nobody needs to be asked
   anything; the clock is the missing witness.
-- **escalate** — not a confidence problem at all. The cost of being wrong, given how irreversible the action
-  is, exceeds what *any* confidence number could justify — so ownership of the call moves to a **human**,
-  regardless of how good the evidence looks.
+- **escalate** — ownership of the call moves to a **human**. Originally (and still, for its first and
+  primary cause) this meant *not a confidence problem at all*: the cost of being wrong, given how
+  irreversible the action is, exceeds what *any* confidence number could justify, regardless of how good
+  the evidence looks. **Amended 2026-09-19 (`.genesis/decisions/0004-value-constraints.md`)** to cover a
+  second, distinct cause: evidence that is present, fresh, and confident, but whose *value* affirmatively
+  fails a declared constraint. See the amendment note below the Alternatives section — this second cause
+  does **not** share the first one's "regardless of how good the evidence looks" character (it is entirely
+  ABOUT how the evidence looks), and is kept mechanically distinguishable from the first at the audit layer
+  even though both surface as `outcome: "escalate"` here.
 - **refuse** — the action should not happen, period, independent of who is asking or how certain anyone is.
   No fact, no amount of waiting, and no human sign-off changes this outcome.
 
@@ -66,6 +72,90 @@ different party, and the Decision object must say which.
   system behavior (wait and re-evaluate automatically, vs. stop and wait for a human decision that the system
   cannot make on its own no matter how long it waits) — merging them would hide exactly the distinction this
   ADR exists to state.
+
+## Amendment — 2026-09-19: a sixth cause, given a fifth outcome's name (value constraints)
+
+**Trigger.** `.genesis/decisions/0004-value-constraints.md` gives `decide()` its first real reason to read a
+signal's *value* rather than only its metadata. That surfaces a case this ADR's original five outcomes did
+not anticipate: evidence that is present, fresh, and confident enough to use — but whose value affirmatively
+contradicts a declared constraint (the canonical example: a fraud assessment reading `FRAUDULENT`, not
+merely `absent` or stale). This is not a missing-information case (nothing is missing — the opposite: the
+evidence arrived and said no), so the `ask`/`defer`/`escalate`-via-gap machinery this ADR built for "what's
+missing and who could supply it" does not apply to it at all.
+
+**Why not `refuse`.** `refuse` is defined above as "independent of who is asking or how certain anyone is."
+A value rejection is the opposite of that by construction: a *different* value for the *same* signal would
+have produced a *different* outcome. Calling this `refuse` would silently stretch that outcome's meaning
+to cover something its own definition explicitly excludes.
+
+**Why not a clean, brand-new sixth outcome — the honest limitation.** The cleanest model, argued on the
+merits alone, is a genuinely new outcome — distinguished from `ask`/`defer`/`escalate` by not being about
+missing information at all, and distinguished from `refuse` by being evidence-dependent. That would mean
+adding a sixth variant to `Decision` in `lib/contracts/decision.ts`. This milestone's own scope explicitly
+freezes `lib/contracts/` (along with `lib/cost-model/` and `app/`) — the same kind of deliberate,
+stated cross-milestone boundary this project has drawn before (see ADR 0003's note that unifying
+`RecordedDecision` with `EvidencedDecision` "would need to unfreeze M4"). So the clean fix is named here,
+honestly, as future work this ADR would bless — **not** implemented in this pass, and **not** smuggled in
+under an existing outcome's name pretending nothing changed.
+
+**What was actually done, within the frozen boundary.** `escalate` is amended (see the bullet above) to
+cover two causes instead of one: the original cost-ceiling/insufficient-now cause, and this new
+value-rejection cause. This is a real amendment to what `escalate` means — recorded here rather than left
+implicit — not a reuse that pretends the definition never changed. Two things keep this from becoming the
+"quiet stretch" this ADR would otherwise object to:
+
+1. Both causes still share `escalate`'s one property that generalizes: **ownership of this specific call
+   moves to a human**, and neither is a case `decide()` can autonomously resolve one way or the other,
+   which is the load-bearing part of `escalate`'s contract as far as autonomy is concerned (see
+   `.genesis/DONE.html`'s autonomy-level section: `escalate` hands control "to a human").
+2. The two causes are kept MECHANICALLY distinguishable one layer up, in `lib/audit/rule.ts`'s `RuleTrace`
+   (unfrozen for this change): a `"confidence-bar"` trace is the original cause; a `"value-rejected"` trace
+   — its own variant, never folded into `"gap"` or `"confidence-bar"` — is the new one. A consumer that
+   cares (a future M6 domain UI, M7's failure suite) can branch on `RuleTrace.kind`, never forced to parse
+   `missing.reason` prose to tell the two apart.
+
+**If a future milestone unfreezes `lib/contracts/`:** the recommended fix is to promote this into a true
+sixth `Decision` variant (a plausible name: `reject`, paired conceptually with `execute` — both are
+evidence-grounded, autonomous, content-of-the-evidence-determined answers, on opposite sides), carrying a
+non-`missing` field naming the constraint and the requirement it failed. That would let `reject` become
+autonomous (no human needed) rather than riding on `escalate`'s human-ownership default, which is arguably
+the MORE honest autonomy story for this case: the evidence is clear and confident, so a human's sign-off
+adds little the way it does for a genuinely ambiguous cost-ceiling escalate. This ADR does not make that
+call now — it is flagged as the natural next amendment, not decided today, precisely so it isn't smuggled
+in without its own argument.
+
+### Carried forward for the next milestone that revisits this (2026-09-19, second independent verification)
+
+A second independent verification, reviewing the value-constraints work above, agreed with this ADR's own
+position — **do not add the sixth outcome now** — and attached two conditions for whichever future
+milestone does, recorded here explicitly so neither is rediscovered the hard way or skipped by accident.
+Neither is implemented in this pass.
+
+1. **Any consumer written between now and that future milestone must branch on `RuleTrace.kind`, never on
+   `missing.reason` prose.** Point 2 above already establishes the mechanism (`"confidence-bar"` vs.
+   `"value-rejected"`); this condition is about what it's FOR: as long as both causes ride on `escalate`,
+   the ONLY mechanically reliable way to tell them apart is `RuleTrace.kind`. A consumer that instead
+   pattern-matches or substring-searches `missing.reason` (e.g. checking for the word "ceiling" — see
+   `reasons.ts`'s own `costCeilingReason`/`insufficientNowReason`, which FIX 3 of the M4 verification
+   already had to disambiguate by exact equality rather than substring, for exactly this reason) is one
+   prose rewording away from silently misclassifying a decision. Getting this right NOW, while there are
+   only two `escalate` causes and few consumers, is what turns "promote value-rejection to its own outcome"
+   into a straightforward refactor (swap which field a consumer reads) later — rather than a rewrite (find
+   every consumer that guessed at prose and fix each one).
+2. **If/when the sixth outcome is added, `reject` is a poor name choice — prefer `deny`.** This ADR's own
+   text above already proposes `reject`, "paired conceptually with `execute`." The verification's objection
+   is not to the pairing, it's to the word itself: `reject` sits immediately beside `refuse` — the outcome
+   this very ADR defines as "independent of who is asking or how certain anyone is" — both orthographically
+   (`re-j-ect` / `re-f-use`, same length, same `re-` prefix, one letter apart in the part a skimming reader
+   actually looks at) and phonetically (both start `/rɪ-/` and land on a soft consonant). Two outcomes whose
+   NAMES are this close, when their MEANINGS are the whole point of keeping them distinct (`refuse` =
+   categorical, evidence-independent; a value-rejection = evidence-dependent, could go the other way with a
+   different value), invites exactly the kind of misreading a five-or-six-outcome model exists to prevent —
+   a reader skimming `RuleTrace`/`Decision.outcome` values, or a future engineer typo'ing one for the other
+   in a `switch`, has a real chance of confusing them. `deny` is not merely different, it is DISTINCT on both
+   axes that matter here (different length, different terminal consonant, different vowel sound: `/dɪˈnaɪ/`
+   vs. `/rɪˈfjuːz/`), while still reading naturally alongside `execute`/`ask`/`defer`/`escalate`/`refuse` as
+   a plain English verb naming what happened. Prefer `deny` over `reject` if/when this is built.
 
 <!-- Copy this file to NNNN-<slug>.md for each irreversible decision.
      Then add a one-line pointer in wiki/index.md if it becomes something later milestones need to find. -->

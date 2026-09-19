@@ -6,6 +6,7 @@ import { parseCapturedAt, parseMilliseconds, type CapturedAt, type Milliseconds 
 import type { Requirement, Supplier } from "../../signals/requirement.js";
 import { createSignal, type Signal } from "../../signals/signal.js";
 import type { Provenance } from "../../signals/provenance.js";
+import type { ValueConstraint } from "../../signals/constraint.js";
 import type { DecideInput, Prohibition } from "../../decide/index.js";
 
 /** Same fixed "now" convention lib/decide and lib/signals's own fixtures use. */
@@ -78,6 +79,7 @@ export function fixtureRequirement(
     readonly minConfidence?: number;
     readonly maxAgeMs?: number;
     readonly supplier?: Supplier;
+    readonly valueConstraint?: ValueConstraint;
   } = {},
 ): Requirement {
   return {
@@ -86,6 +88,7 @@ export function fixtureRequirement(
     minConfidence: confidence(overrides.minConfidence ?? 0.8),
     maxAge: millis(overrides.maxAgeMs ?? 24 * HOUR),
     supplier: overrides.supplier ?? { kind: "counterparty", party: "customer" },
+    ...(overrides.valueConstraint !== undefined ? { valueConstraint: overrides.valueConstraint } : {}),
   };
 }
 

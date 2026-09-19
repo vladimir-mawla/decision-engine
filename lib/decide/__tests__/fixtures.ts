@@ -6,6 +6,7 @@ import { parseCapturedAt, parseMilliseconds, type CapturedAt, type Milliseconds 
 import type { Requirement, Supplier } from "../../signals/requirement.js";
 import { createSignal, type Signal } from "../../signals/signal.js";
 import type { Provenance } from "../../signals/provenance.js";
+import type { ValueConstraint } from "../../signals/constraint.js";
 import type { DecideInput } from "../decide.js";
 import type { Prohibition } from "../prohibition.js";
 
@@ -74,6 +75,7 @@ export function fixtureRequirement(overrides: {
   readonly minConfidence?: number;
   readonly maxAgeMs?: number;
   readonly supplier?: Supplier;
+  readonly valueConstraint?: ValueConstraint;
 } = {}): Requirement {
   return {
     signalKind: overrides.signalKind ?? "customer.identity.verified",
@@ -81,6 +83,7 @@ export function fixtureRequirement(overrides: {
     minConfidence: confidence(overrides.minConfidence ?? 0.8),
     maxAge: millis(overrides.maxAgeMs ?? 24 * HOUR),
     supplier: overrides.supplier ?? { kind: "counterparty", party: "customer" },
+    ...(overrides.valueConstraint !== undefined ? { valueConstraint: overrides.valueConstraint } : {}),
   };
 }
 

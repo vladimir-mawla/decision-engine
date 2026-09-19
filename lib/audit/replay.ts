@@ -1,8 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { decide, type DecideInput, type InputRejected, type Prohibition } from "../decide/index.js";
+import type { Requirement } from "../signals/requirement.js";
 import type { Signal } from "../signals/signal.js";
 import { fromSignalSnapshot, type SignalSnapshot } from "./snapshot.js";
 import { snapshotDecision, type DecisionAuditRecord, type RecordedDecision } from "./record.js";
+import { parseRequirement } from "./validation.js";
 
 /**
  * `replay(record, prohibitions)` — the signature states, explicitly, the
@@ -33,6 +35,47 @@ import { snapshotDecision, type DecisionAuditRecord, type RecordedDecision } fro
  * one of its fields) throws on access, `replay()` reports
  * `matches: false` (there is nothing honest to compare) rather than
  * letting the exception escape.
+ *
+ * `knownSignals` — THE THIRD, OPTIONAL THING BEYOND THE RECORD REPLAY MAY
+ * NEED, added for value constraints
+ * (`.genesis/decisions/0004-value-constraints.md`): a `Requirement` with
+ * `valueConstraint` (lib/signals/requirement.ts) makes `decide()` call
+ * `Signal.read()` — for the FIRST time ever, as of this milestone — which
+ * means `decide()`'s outcome can now depend on a signal's actual VALUE,
+ * not only its metadata. `fromSignalSnapshot` (snapshot.ts) reconstructs
+ * every evidence signal with `UNDISCLOSED_VALUE`, which can never equal or
+ * compare to a real constraint threshold — sound for a decision whose
+ * gap/escalate path never needed the value to AGREE with anything (a
+ * `"constraint-violated"` Gap reproduces correctly: metadata alone is
+ * enough to prove the value was present, fresh, and confident, and
+ * `UNDISCLOSED_VALUE` failing every operator reproduces "not satisfied"
+ * exactly, by construction — see reasons.ts's note on why `"violated"`
+ * and `"type-mismatch"` render identically for exactly this reason), but
+ * UNSOUND for a decision whose evidence depended on the constraint being
+ * CLEARED: metadata-only replay cannot re-verify that, and will
+ * (correctly, honestly) report `matches: false`, not because `decide()`
+ * disagreed with itself, but because the value that made it agree the
+ * first time was never recorded, by design.
+ *
+ * This is the exact same shape of limitation ADR 0003 already stated for
+ * `Prohibition.matches` (a caller-supplied predicate that can't be
+ * serialized, so replay requires it fresh, out of band) — applied to
+ * values instead of predicates. `knownSignals`, when supplied, lets a
+ * caller who legitimately holds the ORIGINAL signals (e.g. replaying
+ * immediately, in the same process, for verification — never persisted
+ * alongside the record) substitute the real signal for a recorded
+ * evidence entry with the SAME id, so a constraint that was satisfied by
+ * a real value replays with full fidelity too. A supplied signal is used
+ * ONLY when its OWN metadata (`kind`/`capturedAt`/`confidence`/`source`)
+ * deep-equals the recorded snapshot's — a signal with a matching id but
+ * DIFFERENT metadata is not "the same evidence, now disclosed", it is a
+ * different signal, and is rejected (falls back to the metadata-only
+ * reconstruction) rather than silently substituted. Omitting
+ * `knownSignals` (or passing `[]`) is always safe and never leaks
+ * anything beyond what `fromSignalSnapshot` already reconstructs — this
+ * parameter never causes a value to be RECORDED anywhere, only used
+ * transiently for this one call, the same opt-in discipline
+ * `discloseSignalValue` (disclose.ts) uses.
  */
 export interface ReplayResult {
   /**
@@ -75,8 +118,26 @@ function idsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+/** Plain-data comparison of a candidate real signal's metadata against a recorded snapshot — never touches `.read()`/`.value`. */
+function metadataMatches(signal: Signal, snapshot: SignalSnapshot): boolean {
+  try {
+    return (
+      signal.kind === snapshot.kind &&
+      signal.capturedAt === snapshot.capturedAt &&
+      signal.confidence === snapshot.confidence &&
+      isDeepStrictEqual(signal.source, snapshot.source)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Reconstructs the exact Signal metadata the decision was recorded with.
+ * Reconstructs the Signal metadata the decision was recorded with — with
+ * REAL signals (see `knownSignals` in the header comment above)
+ * substituted in wherever one is supplied AND its own metadata matches
+ * the recorded snapshot exactly; every other entry falls back to
+ * `fromSignalSnapshot`'s metadata-only reconstruction (`UNDISCLOSED_VALUE`).
  * Fails closed per snapshot (rather than per whole array): a single
  * malformed/hostile `SignalSnapshot` entry is dropped, not fabricated —
  * dropping it can only make the replayed decision diverge from the
@@ -85,17 +146,76 @@ function idsEqual(a: readonly string[], b: readonly string[]): boolean {
  * __tests__/replay.test.ts's tamper-detection cases), never a silent,
  * accidental match.
  */
-function signalsFromEvidence(evidence: unknown): readonly Signal[] {
+function signalsFromEvidence(evidence: unknown, knownSignals: readonly Signal[]): readonly Signal[] {
   if (!Array.isArray(evidence)) return [];
   const signals: Signal[] = [];
   for (const snapshot of evidence as readonly SignalSnapshot[]) {
     try {
-      signals.push(fromSignalSnapshot(snapshot));
+      const known = knownSignals.find((s) => {
+        try {
+          return s.id === snapshot.id;
+        } catch {
+          return false;
+        }
+      });
+      if (known !== undefined && metadataMatches(known, snapshot)) {
+        signals.push(known);
+      } else {
+        signals.push(fromSignalSnapshot(snapshot));
+      }
     } catch {
       // Dropped — see doc comment above.
     }
   }
   return signals;
+}
+
+/**
+ * FIX 4 (independent verification follow-up): `record.requirements` is
+ * NOT re-validated before this fix — `Array.isArray(requirementsRaw) ?
+ * requirementsRaw : []` accepted whatever shape the array's entries
+ * happened to have, unlike `signalsFromEvidence` above, which reconstructs
+ * every evidence entry through `fromSignalSnapshot` rather than trusting
+ * the snapshot's own fields directly. A `DecisionAuditRecord` is only
+ * actually validated when it arrives through `parseAuditRecord`
+ * (validation.ts) — a caller that hand-builds one (or receives one from
+ * storage, another service, or an attacker, then casts past the type
+ * system) bypasses that boundary entirely, and `replay()`'s own header
+ * comment already documents that this project's tests do exactly that.
+ * Concretely, an unvalidated `Requirement.valueConstraint` with an `op:
+ * "in"` could carry an unbounded `values` array — `checkValueConstraint`
+ * (constraint.ts) evaluates it in full, once per candidate signal, on
+ * every replay.
+ *
+ * This function closes that gap by running each requirement through
+ * `parseRequirement` — the SAME strict parser `parseAuditRecord` already
+ * uses at the JSON boundary, now also capping `in.values` at
+ * `MAX_IN_VALUES` (signals/validation.ts) — so a `DecisionAuditRecord`
+ * that skipped that boundary gets validated here instead. Fails closed
+ * PER REQUIREMENT, mirroring `signalsFromEvidence`'s own per-snapshot
+ * discipline: a single malformed/hostile/oversized requirement is
+ * dropped, not fabricated or truncated into something the record never
+ * actually said. Dropping a requirement can only make the replayed
+ * decision diverge further from the recorded one (never converge on a
+ * false match) — `isDeepStrictEqual` below still does the real work of
+ * detecting that divergence via `matches`, exactly as it already does
+ * for a dropped/malformed evidence snapshot.
+ */
+function requirementsFromRecord(requirementsRaw: unknown): readonly Requirement[] {
+  if (!Array.isArray(requirementsRaw)) return [];
+  const requirements: Requirement[] = [];
+  for (const entry of requirementsRaw) {
+    try {
+      const parsed = parseRequirement(entry);
+      if (parsed.ok) requirements.push(parsed.value);
+      // else dropped — see doc comment above.
+    } catch {
+      // Dropped — a throwing getter/Proxy trap on `entry` itself, not
+      // something `parseRequirement`'s own readField/readProperty
+      // discipline already caught.
+    }
+  }
+  return requirements;
 }
 
 const UNREADABLE_RECORD_REPLAYED: InputRejected = {
@@ -104,7 +224,11 @@ const UNREADABLE_RECORD_REPLAYED: InputRejected = {
   evidence: [],
 };
 
-export function replay(record: DecisionAuditRecord, prohibitions: readonly Prohibition[]): ReplayResult {
+export function replay(
+  record: DecisionAuditRecord,
+  prohibitions: readonly Prohibition[],
+  knownSignals: readonly Signal[] = [],
+): ReplayResult {
   const suppliedIds = safeProhibitionIds(prohibitions);
 
   let recordedProhibitionIds: readonly string[] = [];
@@ -129,9 +253,9 @@ export function replay(record: DecisionAuditRecord, prohibitions: readonly Prohi
   try {
     const action = record.action;
     const requirementsRaw = record.requirements;
-    const requirements = Array.isArray(requirementsRaw) ? requirementsRaw : [];
+    const requirements = requirementsFromRecord(requirementsRaw);
     const now = record.now;
-    const signals = signalsFromEvidence(recordedDecision.evidence);
+    const signals = signalsFromEvidence(recordedDecision.evidence, knownSignals);
 
     const input: DecideInput = { action, requirements, signals, prohibitions, now };
     const replayedDecision = decide(input);

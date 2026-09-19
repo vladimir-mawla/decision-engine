@@ -1,6 +1,6 @@
 import { parseConfidence, type InvalidConfidence } from "../contracts/confidence.js";
 import { parseAction, parseDecision, type ActionValidationError } from "../contracts/validation.js";
-import { parseProvenance, type ProvenanceValidationError } from "../signals/validation.js";
+import { parseProvenance, parseValueConstraint, type ProvenanceValidationError } from "../signals/validation.js";
 import {
   parseCapturedAt,
   parseMilliseconds,
@@ -9,6 +9,7 @@ import {
   type InvalidMilliseconds,
 } from "../signals/time.js";
 import type { Requirement, Supplier } from "../signals/requirement.js";
+import type { ValueConstraint } from "../signals/constraint.js";
 import type { SignalSnapshot } from "./snapshot.js";
 import type { RuleTrace } from "./rule.js";
 import type { AuditRecord, DecisionAuditRecord, RecordedDecision, RejectedAuditRecord } from "./record.js";
@@ -110,7 +111,19 @@ function parseSupplier(raw: unknown): Result<Supplier, AuditRecordValidationErro
   }
 }
 
-function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidationError> {
+/**
+ * Exported (FIX 4, independent verification follow-up) so `replay.ts` can
+ * validate `record.requirements` through the SAME strict parser
+ * `parseAuditRecord` already uses at the JSON boundary, rather than
+ * trusting a `DecisionAuditRecord`'s `requirements` field as already-safe
+ * — see `replay.ts`'s own `requirementsFromRecord` for why that trust was
+ * misplaced: a `DecisionAuditRecord` is only actually validated when it
+ * arrives via `parseAuditRecord`, and this project's own tests (matching
+ * `replay()`'s documented FAIL CLOSED discipline) routinely hand-build a
+ * hostile value asserted `as unknown as DecisionAuditRecord`, bypassing
+ * that boundary entirely.
+ */
+export function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidationError> {
   if (!isPlainObject(raw)) return { ok: false, error: { kind: "not-an-object", received: raw } };
 
   const signalKind = readField(raw, "signalKind");
@@ -137,9 +150,35 @@ function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidati
   const supplier = parseSupplier(readField(raw, "supplier"));
   if (!supplier.ok) return supplier;
 
+  // `valueConstraint` is OPTIONAL on `Requirement` (constraint.ts) — only
+  // parsed/attached when the field is actually present, never defaulted to
+  // `undefined` as an explicit key (this project's tsconfig.lib.json turns
+  // on `exactOptionalPropertyTypes`, and the rest of this codebase treats
+  // "key present with value undefined" and "key absent" as genuinely
+  // different, never interchangeable).
+  let valueConstraint: ValueConstraint | undefined;
+  const valueConstraintRaw = readField(raw, "valueConstraint");
+  if (valueConstraintRaw !== undefined) {
+    const parsed = parseValueConstraint(valueConstraintRaw);
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        error: { kind: "invalid-field", field: "requirement.valueConstraint", reason: parsed.error.kind },
+      };
+    }
+    valueConstraint = parsed.value;
+  }
+
   return {
     ok: true,
-    value: { signalKind, description, minConfidence: minConfidence.value, maxAge: maxAge.value, supplier: supplier.value },
+    value: {
+      signalKind,
+      description,
+      minConfidence: minConfidence.value,
+      maxAge: maxAge.value,
+      supplier: supplier.value,
+      ...(valueConstraint !== undefined ? { valueConstraint } : {}),
+    },
   };
 }
 
@@ -221,6 +260,15 @@ function parseRuleTrace(raw: unknown): RuleTrace {
         (signalId === null || typeof signalId === "string")
       ) {
         return { kind: "gap", gapReason, supplierKind, requirementSignalKind, signalId };
+      }
+      return { kind: "internal-error" };
+    }
+    case "value-rejected": {
+      const requirementSignalKind = readField(raw, "requirementSignalKind");
+      const signalId = readField(raw, "signalId");
+      const constraint = parseValueConstraint(readField(raw, "constraint"));
+      if (typeof requirementSignalKind === "string" && typeof signalId === "string" && constraint.ok) {
+        return { kind: "value-rejected", requirementSignalKind, signalId, constraint: constraint.value };
       }
       return { kind: "internal-error" };
     }

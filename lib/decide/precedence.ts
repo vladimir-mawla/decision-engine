@@ -38,6 +38,20 @@ import type { Supplier } from "../signals/requirement.js";
  * function of its argument (no-unreplayable-decision) without inventing a
  * second sort key (e.g. alphabetical by description) that the six
  * decisions above never asked for.
+ *
+ * DECISION 7 (`.genesis/decisions/0004-value-constraints.md`) — where a
+ * `"constraint-violated"` Gap (lib/signals/gap.ts) ranks. It has no
+ * `supplier` at all (the taxonomy above answers "who could supply the
+ * missing thing", and nothing is missing for this Gap reason — the
+ * evidence is present and says no), so it cannot be compared using
+ * `SUPPLIER_PRECEDENCE` the way the other three reasons are. It is given
+ * the HIGHEST precedence of all four — ahead of even `human` — because it
+ * is qualitatively more decisive than any "not yet" gap: a missing fact,
+ * elapsed time, or a pending human judgment all describe evidence that
+ * COULD still turn out fine once supplied; a value rejection is evidence
+ * that has ALREADY arrived and already says no. Resolving every other
+ * simultaneous gap does not change that answer, so it should not be
+ * outranked by one that might.
  */
 const SUPPLIER_PRECEDENCE: Readonly<Record<Supplier["kind"], number>> = {
   human: 0,
@@ -51,6 +65,19 @@ export function precedenceRank(kind: Supplier["kind"]): number {
 }
 
 /**
+ * Full precedence rank across ALL Gap reasons, including
+ * `"constraint-violated"` (see DECISION 7 above) — `-1`, strictly ahead of
+ * `precedenceRank("human")`'s `0`. Every other reason defers to
+ * `precedenceRank(gap.supplier.kind)` unchanged, so this is a superset of
+ * the existing ordering, not a replacement for it; `precedenceRank` itself
+ * is untouched and still exported for the 3-way supplier ordering alone.
+ */
+export function gapPrecedenceRank(gap: Gap): number {
+  if (gap.reason === "constraint-violated") return -1;
+  return precedenceRank(gap.supplier.kind);
+}
+
+/**
  * Picks the single Gap that governs the outcome, per the precedence rule
  * above. Returns `null` only when `gaps` is empty (nothing to resolve is a
  * separate case decide() handles itself — see decide.ts's confidence path).
@@ -58,6 +85,6 @@ export function precedenceRank(kind: Supplier["kind"]): number {
 export function selectWinningGap(gaps: readonly Gap[]): Gap | null {
   if (gaps.length === 0) return null;
   return gaps.reduce((best, candidate) =>
-    precedenceRank(candidate.supplier.kind) < precedenceRank(best.supplier.kind) ? candidate : best,
+    gapPrecedenceRank(candidate) < gapPrecedenceRank(best) ? candidate : best,
   );
 }

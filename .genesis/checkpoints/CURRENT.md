@@ -1,4 +1,167 @@
 # CURRENT
+- active_loop: second independent verification of the value-constraints change (ADR 0004), same branch
+  `value-constraints`, built from `main`. Not pushed; `main` untouched. This verification APPROVED the
+  underlying value-constraints change outright; these four fixes are follow-up hardening it also asked
+  for, not a re-litigation of the approval.
+- target: FIX 1 [MEDIUM] — ADR 0004 Decision 5's own prose understated the metadata-only replay
+  limitation (scoped it to "a value satisfaction contributing to `execute` cannot replay from the record
+  alone"; the real shape is broader: ANY satisfied constraint can manufacture the single
+  highest-precedence Gap kind — `constraint-violated` — at replay time, purely from `UNDISCLOSED_VALUE`
+  failing every operator by construction, and because that Gap outranks every supplier including
+  `human`, it can flip the reported OUTCOME KIND for an unrelated requirement's real gap — e.g. a
+  recorded `ask` replaying as `escalate` — not only fail to reproduce an `execute`). FIX 2 [LOW] — the
+  `in` operator's set-membership check had only unit-level coverage; mutating it to check substring
+  containment on the actual value instead of allow-list membership broke just 2 of 416 tests, both
+  unit-level, none through the full `decide()` pipeline — its thinnest guard. FIX 3 [LOW] — `reasons.ts`
+  documents at length why `valueRejectionReason` must render `"violated"` and `"type-mismatch"` as
+  byte-identical prose (replay's `UNDISCLOSED_VALUE` always re-derives `"type-mismatch"`, so divergent
+  wording would silently break replay for every real `"violated"` record with no failing test pointing
+  at why), but nothing asserted it directly. FIX 4 [LOW] — neither `evaluateConstraint` nor
+  `parseValueConstraint` capped `in.values.length` (unbounded per-check cost), and `replay()` read
+  `record.requirements` directly with zero validation, unlike its own `signalsFromEvidence`'s per-entry
+  reconstruction discipline for evidence — a tampered/hostile `DecisionAuditRecord` (from storage,
+  another service, or an attacker) could carry an arbitrarily large allow-list, evaluated in full on
+  every constraint check. Carried forward, NOT implemented: two conditions on any future sixth
+  `Decision` outcome (consumers must branch on `RuleTrace.kind`, never `missing.reason` prose; prefer
+  `deny` over the ADR's own earlier `reject` suggestion, which sits too close to `refuse` both
+  orthographically and phonetically), recorded in ADR 0001's amendment section.
+- last_gate: All required gates run for real on branch `value-constraints`, after all four fixes. (1)
+  `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 41 test files, 435 tests, all
+  passing (was 416 at the start of this round; 19 net new, 0 removed or weakened). (3) `npm test --
+  decide` — 16 files/131 tests pass. `npm test -- signals` — 9 files/121 tests pass. `npm test -- audit`
+  — 10 files/86 tests pass. (4) `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`,
+  `/api/health`). (5) `git diff main -- lib/contracts lib/cost-model app` — 0 lines; freeze boundary
+  held. (6) `git status --short` — clean after each commit, no hang. (7) `git branch --show-current` —
+  `value-constraints`. Never pushed; `main` and `.genesis/DONE.html`/`.genesis/PLAN.md` untouched. (8)
+  The `in`-operator mutation (constraint.ts's `"in"` case, membership check on the actual value instead
+  of the allow-list — substring semantics): re-run BEFORE the FIX 2 test existed — 2 of 416 fail, both
+  unit-level (`lib/signals/__tests__/constraint.test.ts`, `gap-analysis.test.ts`). Re-run AFTER adding
+  the end-to-end `decide()` coverage — 3 of 419 fail (the same 2, plus the new end-to-end "satisfied"
+  case), proving the full pipeline now has its own independent guard on this operator. FIX 3 teeth proof:
+  temporarily reworded the `"type-mismatch"` branch in `reasons.ts` to its own sentence and re-ran
+  `lib/decide/__tests__/reasons.test.ts` — 2 of its 3 new tests failed immediately on the exact wording
+  that diverged; reverted, suite green again. Both mutations/rewordings applied and reverted by hand;
+  suite re-confirmed green (435/435) after each revert.
+- last_action: FIX 1 — amended ADR 0004 Decision 5 with the general statement above, the two-requirement
+  (`ask` -> `escalate`) reproduction, and a considered-and-rejected-for-now answer to "should
+  metadata-only replay manufacture this Gap at all" (rejected because it would only ever fire on the
+  replay path, and building it correctly would require `lib/signals` to recognize `lib/audit`'s
+  `UNDISCLOSED_VALUE` sentinel by name, inverting this project's dependency direction, for a case
+  `replay()` already reports correctly via `matches: false`). Added the regression test to
+  `lib/audit/__tests__/value-constraint.test.ts`. FIX 2 — added an end-to-end `decide()` describe block
+  to `lib/decide/__tests__/value-constraint.test.ts` exercising `in`, satisfied ("low-risk" -> execute)
+  and violated ("explicit" -> escalate). FIX 3 — new file `lib/decide/__tests__/reasons.test.ts` pinning
+  the violated/type-mismatch wording collapse by exact equality, plus a check that `malformed`/
+  `unreadable` correctly keep their OWN distinct wording. FIX 4 — added `MAX_IN_VALUES = 64` to
+  `lib/signals/validation.ts` (10-30x headroom over every legitimate example in this project — e.g.
+  `Reversibility`'s own 4 members — while bounding per-check cost regardless of where the constraint
+  came from), enforced in `parseValueConstraint`'s `"in"` case (rejects, never truncates). Exported
+  `parseRequirement` from `lib/audit/validation.ts` and added `requirementsFromRecord` to
+  `lib/audit/replay.ts`, routing `record.requirements` through it — drops (never fabricates or
+  truncates) any requirement that fails to parse, per-entry, mirroring `signalsFromEvidence`'s existing
+  discipline for evidence. New test coverage: `lib/signals/__tests__/validation.test.ts` (previously
+  zero direct coverage of `parseValueConstraint` existed at all) and two new cases in
+  `lib/audit/__tests__/fail-closed.test.ts` proving a 100,000-entry allow-list and a `signalKind`-less
+  requirement, both smuggled onto a hand-built record's `requirements` array, are dropped rather than
+  evaluated or thrown on, and that replay still reproduces the original untampered decision exactly
+  (`matches: true`) instead of the `escalate` the unvalidated path would otherwise have forced. Also
+  amended ADR 0001's amendment section with the two carried-forward conditions (no behavior change).
+  `lib/contracts/**`, `lib/cost-model/**`, `app/**` untouched throughout.
+- next_action: Awaiting the next independent L4 VERIFY on this second round of fixes before it counts as
+  done, per standing guidance. If approved: M6 (three domains with realistic data, `domains/**`) remains
+  the next milestone on `.genesis/PLAN.md`, unchanged by this round.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: unspecified for this follow-up (not one of the original 9 milestones)
+- skills_loaded: [genesis]
+
+---
+
+## Value constraints (ADR 0004) checkpoint — first independent verification (preserved as originally written)
+
+- active_loop: post-M5 independent-verification follow-up — value constraints, branch
+  `value-constraints`, built from `main`. Not pushed; `main` untouched.
+- target: fix a real defect an independent verification found in the already-shipped M4/M5 shape:
+  `decide()` never reads a signal's *value*, so the content of evidence (e.g. a fraud assessment reading
+  `CLEAN` vs. `FRAUDULENT`) never affects any decision. Deliberately touches three previously-frozen,
+  independently-verified modules — `lib/signals/`, `lib/decide/`, and (by consequence) `lib/audit/` —
+  while keeping `lib/contracts/`, `lib/cost-model/`, and `app/` genuinely frozen throughout.
+  `.genesis/decisions/0004-value-constraints.md` is the full record; `.genesis/decisions/0001-five-
+  outcome-model.md` is amended (not silently reused) to cover the new case.
+- last_gate: All required gates run for real on branch `value-constraints`. (1) `npm run typecheck` —
+  clean, zero errors, both configs. (2) `npm test` — 39 test files, 416 tests, all passing (was 327 at
+  the start of this change; 89 net new, 0 removed or weakened). (3) `npm test -- decide` — 15 files/126
+  tests, all under `lib/decide/`, pass. `npm test -- signals` — 8 files/110 tests, all under
+  `lib/signals/`, pass. `npm test -- audit` — 10 files/83 tests, all under `lib/audit/`, pass. (4)
+  `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`, `/api/health`). (5) `git diff
+  main -- lib/contracts lib/cost-model app` — 0 lines; freeze boundary held. (6) `git status --short` —
+  clean after each commit, no hang. (7) `git branch --show-current` — `value-constraints`. Never pushed;
+  `main` and `.genesis/DONE.html`/`.genesis/PLAN.md` untouched. (8) Mutation self-check: gutting
+  `evaluateConstraint` to always return `{ satisfied: true }` breaks 47 of 416 tests (spread across
+  `lib/signals/__tests__/constraint.test.ts`, `gap-analysis.test.ts`, `lib/decide/__tests__/value-
+  constraint.test.ts`, `fail-closed.test.ts`, `lib/audit/__tests__/rule.test.ts`, `value-
+  constraint.test.ts`) — well past the "one or two, add more" bar. A second mutation (flipping the new
+  precedence rank for a value rejection from highest to lowest precedence) breaks 8 tests. Both mutations
+  applied and reverted by hand; suite re-confirmed green (416/416) after each revert.
+- last_action: Added value constraints, `Requirement.valueConstraint?: ValueConstraint` (lib/signals/
+  requirement.ts). New file `lib/signals/constraint.ts`: `ValueConstraint` (4 operators — `equals`/
+  `lte`/`gte`/`in`, each justified against three real domains, with an explicit list of deliberately
+  omitted operators — no `notEquals`, no strict `lt`/`gt`, no regex/substring, no compound combinators,
+  no cross-signal comparison), `evaluateConstraint` (fails closed to `malformed`/`type-mismatch`/
+  `violated`, never throws), `checkValueConstraint` (the first real decision-path caller of
+  `Signal.read(maxAge, now)` — used only AFTER a candidate already cleared freshness and confidence).
+  `lib/signals/gap.ts` gets a fourth Gap reason, `"constraint-violated"` — carries no `supplier` field
+  at all (nothing is missing; the counterparty/time/human taxonomy doesn't apply to evidence that
+  arrived and said no). `lib/decide/satisfaction.ts` mirrors the same check, preserving the "the two
+  modules must agree" property. `lib/decide/precedence.ts` gets `gapPrecedenceRank`, ranking a
+  constraint violation ahead of every supplier kind including `human` (evidence that already says no is
+  more decisive than evidence merely missing). `lib/decide/decide.ts` routes a constraint-violated gap to
+  `escalate` with a new reason (`lib/decide/reasons.ts`'s `valueRejectionReason`) — argued at length in
+  ADR 0004 and ADR 0001's amendment for why `escalate` (not `refuse`, not a clean sixth outcome, which
+  `lib/contracts/` being frozen for this change rules out implementing now) is the least-wrong fit.
+  `lib/audit/rule.ts`'s `RuleTrace` gets its own `"value-rejected"` variant (never folded into `"gap"` or
+  `"confidence-bar"`) naming the constraint but never the value; `lib/audit/validation.ts` parses both
+  the new `Requirement.valueConstraint` field and the new `RuleTrace` variant, failing closed on either.
+  DISCOVERED AND FIXED BY THIS ITERATION'S OWN MUTATION-TESTING, NOT ASSUMED CORRECT: a real replay
+  subtlety M5's own soundness proof did not anticipate, because it depended on `decide()` never calling
+  `.read()` — now false. (a) A value REJECTION replays exactly from metadata alone once
+  `valueRejectionReason` renders `"violated"` and `"type-mismatch"` as the identical sentence (both are
+  "not satisfied" from `UNDISCLOSED_VALUE`'s perspective at replay time, even when the original, real
+  value produced `"violated"` specifically) — documented in reasons.ts with the replay reasoning spelled
+  out. (b) A value SATISFACTION (an execute decision that depended on a constraint clearing) cannot
+  replay from metadata alone — `UNDISCLOSED_VALUE` fails any real constraint unconditionally — and this
+  is stated honestly as `matches: false` (detectable, never a silent false match, never a crash) rather
+  than hidden. `lib/audit/replay.ts`'s `replay()` gains an optional third parameter, `knownSignals`,
+  mirroring ADR 0003's own precedent for `Prohibition`: a caller holding the real, original signals may
+  supply them, matched against the recorded snapshot by id AND by matching metadata (a same-id signal
+  with different metadata is rejected as an impostor), to get full-fidelity replay including constraint
+  satisfaction — never persisted, never leaked into the record itself, opt-in exactly like
+  `discloseSignalValue`. Re-ran and re-confirmed the pre-existing M5 value-leak tests
+  (`lib/audit/__tests__/record.test.ts`, `disclose.test.ts`) still pass unmodified, plus new value-leak
+  tests specific to the new Gap/RuleTrace shapes (`lib/audit/__tests__/value-constraint.test.ts`,
+  `lib/signals/__tests__/gap-analysis.test.ts`). `lib/contracts/**`, `lib/cost-model/**`, `app/**`
+  untouched throughout (`git diff main` on all three stayed empty after every commit).
+  Wrote `.genesis/decisions/0004-value-constraints.md`; amended `.genesis/decisions/0001-five-outcome-
+  model.md` explicitly (a new "Amendment — 2026-09-19" section plus a corrected `escalate` bullet, both
+  stating what changed and why, never silently editing the original prose out from under a future
+  reader).
+- next_action: Awaiting an independent L4 VERIFY before this change counts as done, per standing
+  guidance (independent APPROVE required before marking a milestone/change done, even though marking it
+  done afterward is standing-OK once approved). If approved: M6 (three domains with realistic data,
+  `domains/**`) is the next milestone on `.genesis/PLAN.md`, and would be the first real user of
+  `valueConstraint` against non-synthetic-feeling signals (a refund domain's fraud/dispute signals, a
+  deploy domain's test/review signals, a moderation domain's classifier signals) — it should also revisit
+  whether `RuleTrace.kind === "value-rejected"` needs surfacing in a demo UI distinctly from an ordinary
+  cost-ceiling escalate, now that the two are mechanically distinguishable.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: unspecified for this follow-up (not one of the original 9 milestones)
+- skills_loaded: [genesis]
+
+---
+
+## M5 checkpoint (preserved as originally written)
+
 - active_loop: L1 BUILD — M5 (`lib/audit/`), branch `m5-audit`, built from `main`. Not pushed;
   `main` untouched.
 - target: M5 — The audit trail (a full audit record per decision — inputs, signals, reasoning,

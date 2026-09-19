@@ -6,6 +6,7 @@ import {
 } from "./time.js";
 import { PROVENANCE_KINDS, type InvalidProvenance, type Provenance } from "./provenance.js";
 import { createSignal, type Signal } from "./signal.js";
+import type { ValueConstraint } from "./constraint.js";
 
 export type Result<T, E> =
   | { readonly ok: true; readonly value: T }
@@ -192,4 +193,119 @@ export function parseSignal(raw: unknown, now: CapturedAt): Result<Signal, Signa
       confidence: confidence.value,
     }),
   };
+}
+
+export type ValueConstraintValidationError =
+  | { readonly kind: "not-an-object"; readonly received: unknown }
+  | { readonly kind: "unknown-op"; readonly received: unknown }
+  | { readonly kind: "invalid-field"; readonly field: string; readonly reason?: string };
+
+/**
+ * FIX 4 (independent verification follow-up): the upper bound on
+ * `in.values.length` this parser enforces. `evaluateConstraint`
+ * (constraint.ts) checks membership with `Array.prototype.includes` —
+ * O(n) in the allow-list's length, run once per candidate signal per
+ * requirement per `decide()`/`analyzeGaps()` call — and nothing before
+ * this fix capped `n`. That is fine for a domain-authored constraint (an
+ * author typing the list by hand naturally stays small: this project's
+ * OWN header comment in constraint.ts gives 2-value examples — a
+ * moderation category in `{"safe", "low-risk"}`, a deploy target in
+ * `{"staging", "canary"}` — and even `Reversibility` itself, this
+ * project's own largest hand-authored enum, has exactly 4 members), but
+ * `replay()` (lib/audit/replay.ts) reads `record.requirements` from a
+ * `DecisionAuditRecord` that can arrive from storage, another service, or
+ * an attacker — see that file's own note on why every read of `record`
+ * is defensive. A tampered record's `values` array had no ceiling at
+ * all before this fix: nothing stopped it from carrying thousands of
+ * entries, evaluated in full on every constraint check that requirement
+ * took part in.
+ *
+ * 64 is chosen as generous headroom over every legitimate use this
+ * project actually has (10-30x any real example above) while still
+ * bounding the per-check cost to a small, fixed constant regardless of
+ * where the constraint came from — a policy author who genuinely needs
+ * more than 64 discrete allowed values almost certainly has an open-
+ * ended category, which is exactly the kind of "the engine starts doing
+ * domain classification" case constraint.ts's own header comment already
+ * argues against accommodating (see its "Regex / substring / contains"
+ * rejection) — such a domain should emit a categorical signal computed by
+ * its own judgment, not lean on an ever-growing allow-list here.
+ */
+export const MAX_IN_VALUES = 64;
+
+function isConstraintPrimitiveField(value: unknown): value is string | number | boolean {
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Strict boundary parser for `ValueConstraint` (constraint.ts) — same
+ * discipline as every other parser in this file: rejects, never guesses,
+ * and every field read goes through `readField`/`readProperty` so a
+ * throwing getter or Proxy `get` trap folds into "absent field" rather
+ * than escaping as an exception. An unrecognized `op` is
+ * `unknown-op`, never silently coerced into one of the four known shapes.
+ *
+ * This is the ONE parser for `ValueConstraint` in this project —
+ * `lib/audit/validation.ts`'s `parseRequirement` (its own Requirement
+ * boundary parser, needed because a `DecisionAuditRecord` round-trips a
+ * full `Requirement` including its optional `valueConstraint`) imports
+ * and reuses this directly rather than reproducing it: unlike the
+ * low-level `readField`/`readProperty` helpers (never exported, and
+ * genuinely duplicated everywhere for the same reason lib/contracts's own
+ * `validation.ts` states), a domain-shaped parser like this one is exactly
+ * the kind of logic this project prefers to import once `lib/signals` is
+ * no longer frozen relative to the caller — see `parseProvenance`, which
+ * `lib/audit/validation.ts` already imports the same way.
+ */
+export function parseValueConstraint(raw: unknown): Result<ValueConstraint, ValueConstraintValidationError> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: { kind: "not-an-object", received: raw } };
+  }
+
+  const op = readField(raw, "op");
+  switch (op) {
+    case "equals": {
+      const value = readField(raw, "value");
+      if (!isConstraintPrimitiveField(value)) {
+        return { ok: false, error: { kind: "invalid-field", field: "value" } };
+      }
+      return { ok: true, value: { op: "equals", value } };
+    }
+    case "lte":
+    case "gte": {
+      const value = readField(raw, "value");
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return { ok: false, error: { kind: "invalid-field", field: "value" } };
+      }
+      return { ok: true, value: { op, value } };
+    }
+    case "in": {
+      const valuesRaw = readField(raw, "values");
+      if (!Array.isArray(valuesRaw) || valuesRaw.length === 0) {
+        return { ok: false, error: { kind: "invalid-field", field: "values" } };
+      }
+      // FIX 4 — reject, never truncate: silently keeping the first
+      // MAX_IN_VALUES entries would accept a policy the author never
+      // actually wrote (a different, shorter allow-list), which is the
+      // same "rejects, never guesses" discipline this parser already
+      // applies to every other malformed shape.
+      if (valuesRaw.length > MAX_IN_VALUES) {
+        return {
+          ok: false,
+          error: { kind: "invalid-field", field: "values", reason: `must not exceed ${MAX_IN_VALUES} values` },
+        };
+      }
+      const values: (string | number | boolean)[] = [];
+      for (const entry of valuesRaw) {
+        if (!isConstraintPrimitiveField(entry)) {
+          return { ok: false, error: { kind: "invalid-field", field: "values" } };
+        }
+        values.push(entry);
+      }
+      return { ok: true, value: { op: "in", values } };
+    }
+    default:
+      return { ok: false, error: { kind: "unknown-op", received: op } };
+  }
 }
