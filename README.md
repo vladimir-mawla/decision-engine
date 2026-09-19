@@ -181,5 +181,14 @@ Unsoftened, because the previous section already showed the parts that work — 
   `lib/domains/code-deploy/domain.ts` for how easy that judgment is to get wrong in a way that looks
   principled — an earlier draft of D7's rationale would have collapsed a whole reversibility level had it
   gone unchecked). Nothing in the engine itself checks a declared reversibility against anything.
+- **`decide()`'s own fail-closed guarantee can mask a real bug as `escalate`.** The outer `try`/`catch`
+  that guarantees `decide()` never throws (see Architecture, Decision stage) means a genuine bug elsewhere
+  in the function would be silently downgraded to `escalate` rather than surfaced as a crash during
+  development (ADR 0002, Consequences) — mitigated only by keeping the six decision modules small enough
+  that `npm test` catches a logic error before the guard would ever need to swallow one in practice, which
+  is a testing discipline, not a runtime check. The practical effect: an `escalate` in the audit trail
+  cannot be fully distinguished from a masked internal defect — nothing in the record marks the difference
+  between "ownership of this call genuinely belongs to a human" and "the engine hit a bug it was never
+  supposed to hit."
 - **No persistence, no signing, no LLM in the decision path — all by design, not oversight.** See
   `docs/NOTES.md`'s "Deliberately out of scope" for the fuller list and the reasoning behind each.
