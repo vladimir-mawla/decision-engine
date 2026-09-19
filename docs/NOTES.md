@@ -111,12 +111,13 @@ independent pass approved the milestone outright.
 covers this project's *build* — M1 through M8, plus the value-constraints follow-up — checked directly
 against the L4 write-ups in PR comments #1–#9, and that count stands as written; it does not include M9's
 own review, because M9 is documentation and verification only, not build. M9 (this milestone, the ninth on
-`.genesis/PLAN.md`) took **five independent verification rounds of its own, four of them formal
-rejections**, approved on the fifth. The freeze boundary held at zero diff against `main` on every round,
-and the test suite stayed at 541 tests / 58 files throughout — every one of the four rejections was about
-documentation, never code.
+`.genesis/PLAN.md`) took **eight independent verification rounds of its own, six of them formal
+rejections** — rejections on rounds 1 through 4, an approval on round 5, rejections on 6 and 7, and the
+approval this milestone merged on at round 8. The freeze boundary held at zero diff against `main` on
+every round, and the test suite stayed at 541 tests / 58 files throughout — every one of the six
+rejections was about documentation, never code.
 
-What those four rounds were actually for is more useful than the count — by round, not by a tidy
+What the first four rounds were actually for is more useful than the count — by round, not by a tidy
 one-reject-one-reason tally, because it wasn't one (an earlier draft of this very paragraph assumed it was,
 which is worth naming plainly rather than quietly correcting: the record-smoothing this milestone kept
 getting rejected for showed up once more in the paragraph written to document it):
@@ -142,12 +143,22 @@ ADR or the code actually supported. Cause 1 belongs to neither: the trailer misr
 M9's original build commit, before any of the repair rounds above, so the fixing agent inherited it rather
 than constructed it.
 
-This is not the process working as intended. It is a documentation milestone — about not making claims the
-repository can't support — that took five rounds to stop making claims the repository couldn't support,
-stated here plainly rather than folded quietly into the "one reject in nine" figure above, which it is not
-part of. One more thing worth saying about this specific paragraph: the fifth round's approval covered the
-wording that existed at that point: it did not, and could not, approve this paragraph, which is being
-added afterward, precisely so this document doesn't contradict its own PR thread the moment it merges.
+Rounds 6 and 7 were reviews of this paragraph itself. Round 6 rejected it for presenting the four
+rejections above as one cause each, when round 2 had carried two and round 4's cause was missing
+altogether. Round 7 rejected the correction for attributing the first cause to the agent that repaired
+the document rather than the one that wrote it — a distinction the commit graph settles and the
+two-party framing had no room for. Round 8 approved.
+
+That is where this account stops, and the stopping point is a choice rather than a natural end: each
+attempt to record the review honestly was itself reviewed, and twice found wanting. The count above is
+the count at merge. A reader who wants the rounds in full has them in PR #10's thread rather than in a
+number that grows every time someone writes it down.
+
+This is not the process working as intended. It is a documentation milestone — about not making claims
+the repository can't support — that took eight rounds to stop making claims the repository couldn't
+support, stated here plainly rather than folded quietly into the "one reject in nine" figure above, which
+it is not part of. No round's approval covered the sentences describing it; each was written after the
+approval it reports, this one included.
 
 **Two concrete examples, because the fact that most passes approved is less interesting than what the one
 rejection, and later passes, actually caught:**
