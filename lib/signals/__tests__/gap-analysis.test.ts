@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeGaps } from "../gap.js";
-import { fixtureRequirement, fixtureSignal, NOW } from "./fixtures.js";
+import { capturedAt, fixtureRequirement, fixtureSignal, NOW } from "./fixtures.js";
 
 describe("analyzeGaps — requirements fully met", () => {
   it("every requirement satisfied by a fresh, sufficiently-confident signal yields no gaps", () => {
@@ -114,7 +114,9 @@ describe("analyzeGaps — a stale signal counts as missing, not present", () => 
     expect(gaps[0]?.reason).toBe("stale");
     if (gaps[0]?.reason === "stale") {
       expect(gaps[0].signal.id).toBe(staleSignal.id);
-      expect(gaps[0].age).toBe(2 * 60 * 60 * 1000);
+      // `age` is an `Age` (see time.ts), not a bare number — a caller must
+      // narrow on `kind` before reaching for `.ms`.
+      expect(gaps[0].age).toEqual({ kind: "elapsed", ms: 2 * 60 * 60 * 1000 });
     }
   });
 
@@ -130,6 +132,71 @@ describe("analyzeGaps — a stale signal counts as missing, not present", () => 
 
     expect(analyzeGaps([lenient], [signal], NOW)).toEqual([]);
     expect(analyzeGaps([strict], [signal], NOW)).toHaveLength(1);
+  });
+});
+
+describe("analyzeGaps — every candidate is clock-inconsistent: no fabricated age", () => {
+  it("reports age as clock-inconsistency, never a fabricated zero, when the only candidate's capturedAt is after `now`", () => {
+    // Constructed so the signal's own capturedAt (11:59) is valid relative
+    // to NOW (12:00) — parseCapturedAt only refuses a capturedAt AFTER its
+    // own constructing `now`. It is then judged, in analyzeGaps, against an
+    // EARLIER `now` (11:30) than its capturedAt — a caller-side clock
+    // inconsistency, the same setup freshness.test.ts uses for
+    // Signal.read's own "clock-inconsistency" branch.
+    const requirement = fixtureRequirement({
+      signalKind: "customer.identity.verified",
+      maxAgeMs: 30 * 60 * 1000,
+      supplier: { kind: "counterparty", party: "customer" },
+    });
+    const clockInconsistentSignal = fixtureSignal({
+      kind: "customer.identity.verified",
+      confidence: 0.99,
+      capturedAtIso: "2026-09-19T11:59:00Z",
+    });
+    const earlierNow = capturedAt("2026-09-19T11:30:00Z");
+
+    const gaps = analyzeGaps([requirement], [clockInconsistentSignal], earlierNow);
+
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]?.reason).toBe("stale");
+    if (gaps[0]?.reason === "stale") {
+      expect(gaps[0].signal.id).toBe(clockInconsistentSignal.id);
+      // The honest answer: this candidate has no meaningful age at all
+      // (its observation lies in the future relative to the clock it is
+      // being judged against) — never `{ kind: "elapsed", ms: 0 }`, which
+      // would claim, falsely, that it was captured at exactly `now`.
+      expect(gaps[0].age).toEqual({ kind: "clock-inconsistency" });
+      expect(gaps[0].age).not.toEqual({ kind: "elapsed", ms: 0 });
+    }
+  });
+
+  it("prefers a trustworthy elapsed age over a clock-inconsistent one when both are candidates", () => {
+    const requirement = fixtureRequirement({
+      signalKind: "customer.identity.verified",
+      maxAgeMs: 5 * 60 * 1000, // 5 minutes — both candidates below miss it
+      supplier: { kind: "counterparty", party: "customer" },
+    });
+    const clockInconsistentSignal = fixtureSignal({
+      id: "sig-future",
+      kind: "customer.identity.verified",
+      confidence: 0.99,
+      capturedAtIso: "2026-09-19T11:59:00Z",
+    });
+    const staleButElapsedSignal = fixtureSignal({
+      id: "sig-elapsed",
+      kind: "customer.identity.verified",
+      confidence: 0.99,
+      capturedAtIso: "2026-09-19T11:00:00Z", // 30 minutes before earlierNow
+    });
+    const earlierNow = capturedAt("2026-09-19T11:30:00Z");
+
+    const gaps = analyzeGaps([requirement], [clockInconsistentSignal, staleButElapsedSignal], earlierNow);
+
+    expect(gaps).toHaveLength(1);
+    if (gaps[0]?.reason === "stale") {
+      expect(gaps[0].signal.id).toBe("sig-elapsed");
+      expect(gaps[0].age).toEqual({ kind: "elapsed", ms: 30 * 60 * 1000 });
+    }
   });
 });
 

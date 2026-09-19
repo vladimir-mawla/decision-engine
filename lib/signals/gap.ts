@@ -1,4 +1,4 @@
-import { ageOf, isFresh, type Age, type CapturedAt, type Milliseconds } from "./time.js";
+import { ageOf, isFresh, type Age, type CapturedAt } from "./time.js";
 import type { Confidence } from "../contracts/confidence.js";
 import type { Requirement, Supplier } from "./requirement.js";
 import type { Signal } from "./signal.js";
@@ -16,12 +16,30 @@ import type { Signal } from "./signal.js";
  *   among what was supplied. Nothing to point to; carries only the
  *   requirement and its supplier.
  * - `stale`            — a signal of the right kind exists, but every
- *   candidate is older than the requirement's `maxAge`. THIS IS THE CASE
- *   THAT PROVES "a stale signal counts as missing, not present" — the
- *   signal is right there in `available`, and it still produces a Gap,
- *   never a satisfied requirement. Carries the freshest candidate found
- *   (for the audit trail — "here's what we found, and it wasn't fresh
- *   enough") plus its actual age.
+ *   candidate is either older than the requirement's `maxAge` or
+ *   clock-inconsistent (its own `capturedAt` is after `now` — see time.ts).
+ *   THIS IS THE CASE THAT PROVES "a stale signal counts as missing, not
+ *   present" — the signal is right there in `available`, and it still
+ *   produces a Gap, never a satisfied requirement. Carries the freshest
+ *   candidate found (for the audit trail — "here's what we found, and it
+ *   wasn't fresh enough") plus its `age`, which is an `Age` — not a bare
+ *   `Milliseconds` — for a specific reason: a clock-inconsistent candidate
+ *   HAS NO MEANINGFUL AGE (its observation is in the future relative to
+ *   the clock it is being judged against; `now - capturedAt` is negative,
+ *   which is not a duration at all), so this field is honest about that by
+ *   construction. It is `{ kind: "elapsed", ms }` when the candidate's age
+ *   is a real, trustworthy duration, or `{ kind: "clock-inconsistency" }`
+ *   when it is not — reusing `Age` (time.ts) rather than inventing a
+ *   parallel vocabulary. A caller cannot read a number off this field
+ *   without first narrowing on `age.kind`, so "age unknown" can never be
+ *   mistaken for "age zero": there is no `.ms` to reach for on the
+ *   `clock-inconsistency` branch, the same discriminated-union discipline
+ *   `SignalReading` (signal.ts) uses to keep a caller from reaching for
+ *   `.value` on a non-`"fresh"` reading. Earlier code here fabricated
+ *   `age: 0` for this branch, contradicting this very comment's promise
+ *   that the gap reports the signal's actual age — fixed by making the
+ *   type say what is actually known, not by loosening the comment to
+ *   match the fabrication.
  * - `below-confidence` — a fresh signal of the right kind exists, but its
  *   own confidence doesn't clear `requirement.minConfidence`. Carries the
  *   signal and its actual confidence, for the same reason as `stale`.
@@ -39,7 +57,7 @@ export type Gap =
       readonly requirement: Requirement;
       readonly supplier: Supplier;
       readonly signal: Signal;
-      readonly age: Milliseconds;
+      readonly age: Age;
     }
   | {
       readonly reason: "below-confidence";
@@ -148,18 +166,24 @@ export function analyzeGaps(
     }
 
     if (candidates.length > 0) {
+      // "Most recent" prefers any elapsed (trustworthy) age over a
+      // clock-inconsistent one, and among elapsed ages picks the smallest
+      // (freshest failure). If every candidate is clock-inconsistent, none
+      // is more "recent" than another — there is no honest way to rank
+      // them by age — so the first is kept arbitrarily and `age` reports
+      // that honestly via its `clock-inconsistency` kind, never a
+      // fabricated duration.
       const mostRecent = candidates.reduce((best, c) => {
         if (c.age.kind === "clock-inconsistency") return best;
         if (best.age.kind === "clock-inconsistency") return c;
         return c.age.ms < best.age.ms ? c : best;
       });
-      const age: Milliseconds = mostRecent.age.kind === "elapsed" ? mostRecent.age.ms : (0 as Milliseconds);
       gaps.push({
         reason: "stale",
         requirement,
         supplier: requirement.supplier,
         signal: mostRecent.signal,
-        age,
+        age: mostRecent.age,
       });
       continue;
     }
