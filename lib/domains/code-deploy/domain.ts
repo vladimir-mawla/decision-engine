@@ -36,12 +36,22 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  * a measure of how big the change is, and none of them is what flips the
  * outcome.
  *
- * The decisive fact is structural rather than rhetorical: `decide()` reads
- * exactly two fields of an `Action` — `costOfBeingWrong` and
- * `reversibility`. It never reads `action.parameters` at all, so
- * `linesChanged`, `filesChanged`, repo and service are not merely deemed
- * irrelevant, they are unreachable from the engine. Verify with
- * `grep -rn '\.parameters' lib/decide lib/audit` — no matches. A
+ * The decisive fact is structural rather than rhetorical: `decide()`'s own
+ * logic reads exactly two fields of an `Action` — `costOfBeingWrong` and
+ * `reversibility` — and neither it nor `lib/audit` ever reads
+ * `action.parameters`. Verify with
+ * `grep -rn 'action\.parameters' lib/decide lib/audit --include='*.ts' | grep -v __tests__`
+ * — no matches. (The unfiltered pattern finds two test-fixture
+ * pass-throughs, which is why the filter is there.)
+ *
+ * One precise caveat, because "the engine never sees parameters" would be
+ * too strong: `findProhibition` invokes each domain-supplied
+ * `Prohibition.matches(action)` predicate, and D6's force-push rule below
+ * reads `parameters.method` and `parameters.branchProtected` — so those two
+ * fields ARE read while deciding every case, including D1 and D7. What no
+ * code anywhere in this project reads is `linesChanged`, `filesChanged`,
+ * `repo` or `service`: they exist only as narrative for a human reading the
+ * case. So the size fields are unreachable; the parameters object is not. A
  * path-based CI rule flagging `core/payments-service` would not contradict
  * this; it would be reasoning from what the change touches, which is the
  * axis `lib/cost-model/cost.ts` argues for, not the size axis it calls the
