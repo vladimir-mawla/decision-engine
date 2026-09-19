@@ -9,7 +9,7 @@ import { recordDecision } from "../lib/audit/record.js";
 import { ALL_DOMAINS } from "../lib/domains/index.js";
 import type { DomainCase } from "../lib/domains/types.js";
 import { DecisionCard } from "./DecisionCard.js";
-import { formatUsd, reversibilityShort } from "./decision-helpers.js";
+import { formatUsd, reversibilityLabel, reversibilityShort } from "./decision-helpers.js";
 
 /**
  * THE CENTRAL CLAIM, AS AN INTERACTION.
@@ -70,6 +70,7 @@ function costToLog(cost: number): number {
 }
 
 interface Preset {
+  readonly id: string;
   readonly label: string;
   readonly cost: number;
   readonly reversibility: Reversibility;
@@ -93,9 +94,9 @@ const d1Case = codeDeploy?.cases.find((c) => c.id === "deploy-d1-flag-toggle-adm
 
 const PRESETS: readonly Preset[] = [
   d1Case
-    ? { label: "D1 — flag toggle, admin tool", cost: d1Case.action.costOfBeingWrong, reversibility: d1Case.action.reversibility }
-    : { label: "Low stakes", cost: 800, reversibility: "reversible-no-trace" },
-  { label: "D7 — flag disables fraud checks", cost: baseCase.action.costOfBeingWrong, reversibility: baseCase.action.reversibility },
+    ? { id: "D1", label: "D1 — flag toggle, admin tool", cost: d1Case.action.costOfBeingWrong, reversibility: d1Case.action.reversibility }
+    : { id: "D1", label: "Low stakes", cost: 800, reversibility: "reversible-no-trace" },
+  { id: "D7", label: "D7 — flag disables fraud checks", cost: baseCase.action.costOfBeingWrong, reversibility: baseCase.action.reversibility },
 ];
 
 function buildRecord(cost: number, reversibility: Reversibility): DecisionAuditRecord | null {
@@ -124,6 +125,19 @@ export function StakesExplorer(): JSX.Element {
 
   const cost = useMemo(() => logToCost(logCost), [logCost]);
   const record = useMemo(() => buildRecord(cost, reversibility), [cost, reversibility]);
+  /**
+   * Every stakes combination this widget can produce replays the SAME
+   * evidence — D7's (PR #5402, deploy-d7) — at different stakes; the
+   * decision that flips is never a different action. With D1's stakes
+   * dialed in, the previous title (`baseCase.title`, verbatim: "HARD CASE
+   * — one line changed, disables fraud checks on checkout") read as if
+   * D1's $800/reversible action disabled a fraud check — a mismatch a
+   * skimming viewer reasonably hits inside seconds. The card must say what
+   * is actually happening itself, not rely on the paragraph above it.
+   */
+  const activePreset = PRESETS.find((preset) => preset.cost === cost && preset.reversibility === reversibility);
+  const stakesDescriptor = activePreset ? `${activePreset.id}'s` : "these";
+  const title = `Same evidence (PR #5402, deploy-d7) at ${stakesDescriptor} stakes: ${formatUsd(cost)}, ${reversibilityLabel(reversibility).toLowerCase()}`;
 
   /**
    * `role="radiogroup"`/`role="radio"` (below) promise the ARIA APG's
@@ -230,10 +244,7 @@ export function StakesExplorer(): JSX.Element {
       </div>
 
       {record ? (
-        <DecisionCard
-          record={record}
-          title={`${baseCase.title} — at ${formatUsd(cost)}, ${reversibilityShort(reversibility).toLowerCase()}`}
-        />
+        <DecisionCard record={record} title={title} />
       ) : (
         <p role="alert">Cost value out of range.</p>
       )}
