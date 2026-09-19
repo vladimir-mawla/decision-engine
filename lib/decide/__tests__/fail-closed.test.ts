@@ -119,6 +119,45 @@ describe("fail-closed — decide() never throws, for any hostile input", () => {
     expect(decision!.outcome).toBe("escalate");
   });
 
+  it("a requirement whose valueConstraint itself has a throwing getter does not escape decide() (value constraints)", () => {
+    const requirement = fixtureRequirement({ valueConstraint: { op: "equals", value: "clear" } });
+    const hostile: Requirement = Object.defineProperty({ ...requirement }, "valueConstraint", {
+      enumerable: true,
+      get() {
+        throw new Error("hostile getter on valueConstraint");
+      },
+    });
+
+    let decision;
+    expect(() => {
+      decision = decide(fixtureInput({ requirements: [hostile], signals: [fixtureSignal({ kind: requirement.signalKind })] }));
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+  });
+
+  it("a signal whose value is a Proxy that throws on every property access does not escape decide() when a valueConstraint is declared", () => {
+    const requirement = fixtureRequirement({ valueConstraint: { op: "equals", value: "clear" } });
+    const hostileValue = new Proxy({}, { get() { throw new Error("hostile value proxy"); } });
+    const signal = fixtureSignal({ kind: requirement.signalKind, value: hostileValue });
+
+    let decision;
+    expect(() => {
+      decision = decide(fixtureInput({ requirements: [requirement], signals: [signal] }));
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+  });
+
+  it("an unknown constraint op never fabricates a satisfied requirement, and does not throw", () => {
+    const requirement = fixtureRequirement({ valueConstraint: { op: "regex-match", value: ".*" } as never });
+    const signal = fixtureSignal({ kind: requirement.signalKind, value: "anything" });
+
+    let decision;
+    expect(() => {
+      decision = decide(fixtureInput({ requirements: [requirement], signals: [signal] }));
+    }).not.toThrow();
+    expect(decision!.outcome).not.toBe("execute");
+  });
+
   it("a signal claiming NaN confidence is never treated as satisfying evidence, and does not throw", () => {
     // NaN fails EVERY comparison (`NaN >= x` and `NaN < x` are both
     // false), so lib/signals/gap.ts's own `>= minConfidence` check

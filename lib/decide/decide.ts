@@ -26,6 +26,7 @@ import {
   internalInconsistencyReason,
   noRequirementsReason,
   unusableInputReason,
+  valueRejectionReason,
 } from "./reasons.js";
 import { findSatisfaction } from "./satisfaction.js";
 import { isBarSaturated } from "./stakes.js";
@@ -309,12 +310,33 @@ function decideFromGap(
   now: CapturedAt,
 ): EvidencedDecision {
   // ── DECISION 1 — precedence: human > counterparty > time. ──────────────
+  // DECISION 7 (value constraints) extends this: constraint-violated
+  // outranks all three — see precedence.ts's gapPrecedenceRank.
   const winner = selectWinningGap(gaps);
   if (winner === null) {
     // Unreachable: this function is only called with gaps.length > 0.
     return toEscalateDecision(
       action,
       { kind: "human-judgment", reason: internalErrorReason() },
+      signals,
+    );
+  }
+
+  // ── DECISION 7 — a value constraint failed. Handled BEFORE the
+  // supplier-kind switch below because this Gap reason carries no
+  // `supplier` at all: nothing is missing here (the evidence is present
+  // and says no), so the counterparty/time/human taxonomy that switch
+  // dispatches on simply does not apply — see gap.ts's own note on why
+  // this variant omits `supplier`, and reasons.ts's valueRejectionReason
+  // for why `escalate` (not `ask`/`defer`/`refuse`) is the least-wrong fit
+  // among the five outcomes lib/contracts (frozen) allows.
+  if (winner.reason === "constraint-violated") {
+    return toEscalateDecision(
+      action,
+      {
+        kind: "human-judgment",
+        reason: valueRejectionReason(winner.requirement, winner.constraint, winner.evaluation),
+      },
       signals,
     );
   }

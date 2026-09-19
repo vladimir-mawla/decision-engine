@@ -1,5 +1,6 @@
 import type { Confidence } from "../contracts/confidence.js";
 import type { Requirement } from "../signals/requirement.js";
+import type { ConstraintFailure, ValueConstraint } from "../signals/constraint.js";
 import type { Satisfaction } from "./satisfaction.js";
 
 /**
@@ -17,6 +18,88 @@ import type { Satisfaction } from "./satisfaction.js";
 /** DECISION 3a — a `human`-supplier requirement is unmet. The Gap's own Supplier already carries the reason verbatim (requirement.ts: "ready to hand to MissingJudgment.reason unchanged") — no rewording needed or wanted. */
 export function humanGapReason(reason: string): string {
   return reason;
+}
+
+/**
+ * DECISION 7 (`.genesis/decisions/0004-value-constraints.md`) — a
+ * `"constraint-violated"` Gap (lib/signals/gap.ts) won precedence. Renders
+ * the DECLARED constraint (policy data: an operator and a threshold/set —
+ * never the signal's actual value, which this function never receives)
+ * and the categorical way it failed, never the value itself.
+ *
+ * WHY THIS IS `escalate`, ARGUED HONESTLY RATHER THAN ASSUMED: see the ADR
+ * 0001 amendment this milestone adds. In short — `refuse` is wrong because
+ * `refuse`'s own definition is "independent of ... how certain anyone is",
+ * and this outcome is the opposite of that (a different value for this
+ * same signal would produce a different outcome, by construction); the
+ * ORIGINAL `escalate` definition ("regardless of how good the evidence
+ * looks") is also not quite right, because this case is entirely ABOUT how
+ * the evidence looks. `escalate` is still the least-wrong fit among the
+ * five outcomes this milestone's frozen `lib/contracts` allows (`ask`
+ * would mean re-asking a counterparty for a fact they already supplied,
+ * which already said no; `defer` would mean waiting on a clock for a fact
+ * that already arrived) — and it fits the one part of `escalate`'s
+ * AUTONOMY story that does generalize: ownership of THIS call moves to a
+ * human, because the engine's job is to detect the contradiction between
+ * the evidence and the declared policy, not to adjudicate an exception to
+ * it. The text below says exactly that, and never claims this is the
+ * ORIGINAL cost-ceiling/insufficient-now escalate reason wearing new
+ * words — see `lib/audit/rule.ts`'s own `"value-rejected"` `RuleTrace`
+ * variant for the structural (not just prose) way this stays
+ * distinguishable from those two.
+ */
+export function valueRejectionReason(
+  requirement: Requirement,
+  constraint: ValueConstraint,
+  evaluation: ConstraintFailure,
+): string {
+  const constraintText = describeConstraint(constraint);
+  // NOTE ON WHY "violated" AND "type-mismatch" RENDER IDENTICALLY, NOT AS
+  // TWO DIFFERENT SENTENCES: this text becomes part of `EscalateDecision`
+  // itself (`missing.reason`), which `lib/audit/replay.ts` compares
+  // byte-for-byte when replaying a recorded decision. Replay reconstructs
+  // a signal's VALUE as the `UNDISCLOSED_VALUE` sentinel (lib/audit/
+  // snapshot.ts) — never the real one — and that sentinel can never equal
+  // a primitive, so a metadata-only replay of a value rejection ALWAYS
+  // re-derives `"type-mismatch"`, even when the ORIGINAL evaluation (with
+  // the real value) was `"violated"` (a real value of the right shape,
+  // just the wrong one). If this text worded those two differently, an
+  // honest `"violated"` record would never replay-match, even though the
+  // rejection ITSELF (which requirement, which constraint, which signal)
+  // is perfectly reproducible without the value. So these two — and ONLY
+  // these two — collapse to the same wording; `"malformed"` and
+  // `"unreadable"` don't have this problem (neither depends on the real
+  // value's actual shape) and keep their own distinct sentences.
+  const shapeText =
+    evaluation.reason === "violated" || evaluation.reason === "type-mismatch"
+      ? "does not satisfy that constraint"
+      : evaluation.reason === "malformed"
+        ? "could not be checked because the declared constraint itself is malformed"
+        : "could not be re-read at evaluation time";
+  return (
+    `Evidence for "${requirement.description}" (signal kind "${requirement.signalKind}") is present, fresh, ` +
+    `and confident enough to use on its own terms — but its value ${shapeText} (constraint: ${constraintText}). ` +
+    `This is deliberately not treated as missing information: no counterparty answer, no elapsed time, and no ` +
+    `additional evidence-gathering would change what has already been reported, so this is not \`ask\`/\`defer\`. ` +
+    `It is also deliberately not \`refuse\`: a different value for this same signal would have produced a ` +
+    `different outcome, which \`refuse\`'s own meaning ("independent of ... how certain anyone is") rules out. ` +
+    `\`escalate\` is used here because ownership of this one call moves to a human — the engine's role is to ` +
+    `detect the contradiction between the evidence and this action's declared policy, not to decide, on its own, ` +
+    `whether the contradiction should be overridden. A human decides this one.`
+  );
+}
+
+function describeConstraint(constraint: ValueConstraint): string {
+  switch (constraint.op) {
+    case "equals":
+      return `must equal ${JSON.stringify(constraint.value)}`;
+    case "lte":
+      return `must be <= ${constraint.value}`;
+    case "gte":
+      return `must be >= ${constraint.value}`;
+    case "in":
+      return `must be one of ${JSON.stringify(constraint.values)}`;
+  }
 }
 
 /** DECISION 6 — the winning gap's only candidate evidence is dated after decide()'s own clock. */

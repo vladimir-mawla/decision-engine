@@ -1,11 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { decide } from "../decide.js";
-import { precedenceRank, selectWinningGap } from "../precedence.js";
+import { gapPrecedenceRank, precedenceRank, selectWinningGap } from "../precedence.js";
 import type { Gap } from "../../signals/gap.js";
-import { fixtureInput, fixtureRequirement } from "./fixtures.js";
+import type { Supplier } from "../../signals/requirement.js";
+import { fixtureInput, fixtureRequirement, fixtureSignal } from "./fixtures.js";
 
-function absentGap(supplier: Gap["supplier"]): Gap {
+function absentGap(supplier: Supplier): Gap {
   return { reason: "absent", requirement: fixtureRequirement({ supplier }), supplier };
+}
+
+function constraintViolatedGap(): Gap {
+  const requirement = fixtureRequirement({
+    signalKind: "fraud.assessment",
+    valueConstraint: { op: "equals", value: "clear" },
+  });
+  return {
+    reason: "constraint-violated",
+    requirement,
+    signal: fixtureSignal({ kind: "fraud.assessment", value: "fraudulent" }),
+    constraint: { op: "equals", value: "clear" },
+    evaluation: { satisfied: false, reason: "violated" },
+  };
 }
 
 /**
@@ -58,6 +73,49 @@ describe("selectWinningGap — DECISION 1 precedence, human > counterparty > tim
 
   it("empty gaps list has no winner", () => {
     expect(selectWinningGap([])).toBeNull();
+  });
+});
+
+/**
+ * DECISION 7 (`.genesis/decisions/0004-value-constraints.md`) —
+ * `constraint-violated` outranks all three supplier kinds, including
+ * `human`. `gapPrecedenceRank` is the superset ranking function
+ * `selectWinningGap` actually uses; `precedenceRank` itself (the 3-way
+ * supplier ordering above) is untouched.
+ */
+describe("gapPrecedenceRank / selectWinningGap — DECISION 7, constraint-violated outranks every supplier kind", () => {
+  it("constraint-violated ranks strictly ahead of human", () => {
+    expect(gapPrecedenceRank(constraintViolatedGap())).toBeLessThan(precedenceRank("human"));
+  });
+
+  it("beats human", () => {
+    const rejection = constraintViolatedGap();
+    const human = absentGap({ kind: "human", reason: "needs sign-off" });
+    expect(selectWinningGap([human, rejection])).toBe(rejection);
+    expect(selectWinningGap([rejection, human])).toBe(rejection);
+  });
+
+  it("beats counterparty", () => {
+    const rejection = constraintViolatedGap();
+    const counterparty = absentGap({ kind: "counterparty", party: "customer" });
+    expect(selectWinningGap([counterparty, rejection])).toBe(rejection);
+    expect(selectWinningGap([rejection, counterparty])).toBe(rejection);
+  });
+
+  it("beats time", () => {
+    const rejection = constraintViolatedGap();
+    const time = absentGap({ kind: "time", waitingOn: "a cooldown" });
+    expect(selectWinningGap([time, rejection])).toBe(rejection);
+    expect(selectWinningGap([rejection, time])).toBe(rejection);
+  });
+
+  it("beats all three supplier kinds at once, regardless of array order", () => {
+    const rejection = constraintViolatedGap();
+    const human = absentGap({ kind: "human", reason: "needs sign-off" });
+    const counterparty = absentGap({ kind: "counterparty", party: "customer" });
+    const time = absentGap({ kind: "time", waitingOn: "a cooldown" });
+    expect(selectWinningGap([time, counterparty, human, rejection])).toBe(rejection);
+    expect(selectWinningGap([rejection, human, counterparty, time])).toBe(rejection);
   });
 });
 

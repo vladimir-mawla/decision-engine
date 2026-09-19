@@ -2,6 +2,7 @@ import { ageOf, isFresh, type CapturedAt } from "../signals/time.js";
 import type { Requirement } from "../signals/requirement.js";
 import type { Signal } from "../signals/signal.js";
 import type { Confidence } from "../contracts/confidence.js";
+import { checkValueConstraint } from "../signals/constraint.js";
 
 /**
  * The signal that actually satisfies a Requirement, once one exists. `Gap`
@@ -54,6 +55,15 @@ function isUsableConfidence(value: unknown): value is Confidence {
  * agree — `findSatisfaction` returns non-null if and only if `analyzeGaps`
  * produces no Gap for that requirement — so any future drift between them
  * fails loudly instead of silently.
+ *
+ * VALUE CONSTRAINTS (`.genesis/decisions/0004-value-constraints.md`): when
+ * `requirement.valueConstraint` is declared, a candidate must ALSO clear it
+ * to count as `best` — checked last, strictly after the fresh/confident
+ * filter above, mirroring gap.ts's own ordering exactly. `checkValueConstraint`
+ * itself is a shared, generic evaluator (not business logic specific to
+ * this module), so it is imported rather than re-implemented — unlike the
+ * fresh/confident filter, duplicating a call to a shared pure function
+ * buys no independence, only drift risk.
  */
 export function findSatisfaction(
   requirement: Requirement,
@@ -69,6 +79,11 @@ export function findSatisfaction(
     const age = ageOf(signal.capturedAt, now);
     if (!isFresh(age, requirement.maxAge)) continue;
     if (signal.confidence < requirement.minConfidence) continue;
+
+    if (requirement.valueConstraint !== undefined) {
+      const check = checkValueConstraint(signal, requirement.valueConstraint, requirement.maxAge, now);
+      if (!check.satisfied) continue;
+    }
 
     if (best === null || signal.confidence > best.confidence) {
       best = signal;
