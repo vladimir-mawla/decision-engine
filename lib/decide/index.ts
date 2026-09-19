@@ -2,6 +2,11 @@ export { decide, type DecideInput, type InputRejected } from "./decide.js";
 
 export {
   type EvidencedDecision,
+  type EvidencedExecuteDecision,
+  type EvidencedAskDecision,
+  type EvidencedDeferDecision,
+  type EvidencedEscalateDecision,
+  type EvidencedRefuseDecision,
   toExecuteDecision,
   toAskDecision,
   toDeferDecision,
@@ -10,6 +15,8 @@ export {
 } from "./evidence.js";
 
 export { findProhibition, type Prohibition } from "./prohibition.js";
+
+export { matchDecision, isInputRejected, type DecisionHandlers } from "./match.js";
 
 export { precedenceRank, selectWinningGap } from "./precedence.js";
 

@@ -39,12 +39,30 @@ import type { Signal } from "../signals/signal.js";
  * mechanical, not aspirational, the same discipline lib/contracts itself
  * uses for e.g. `AskDecision.missing.fact`.
  */
+export type EvidencedExecuteDecision = ExecuteDecision & { readonly evidence: readonly Signal[] };
+export type EvidencedAskDecision = AskDecision & { readonly evidence: readonly Signal[] };
+export type EvidencedDeferDecision = DeferDecision & { readonly evidence: readonly Signal[] };
+export type EvidencedEscalateDecision = EscalateDecision & { readonly evidence: readonly Signal[] };
+export type EvidencedRefuseDecision = RefuseDecision & { readonly evidence: readonly Signal[] };
+
+/**
+ * Named per-variant aliases above (rather than inlining each member here)
+ * exist so `match.ts`'s `DecisionHandlers` can reference each outcome's
+ * exact shape by NAME — never by writing a literal `{ outcome: "x" }`
+ * discriminant of its own, which `__tests__/no-outcome-without-signals.
+ * test.ts`'s structural scan would (correctly, for real object-literal
+ * construction) flag if it appeared as text anywhere under lib/decide/
+ * outside this file. A type-level `Extract<EvidencedDecision, { outcome:
+ * "escalate" }>` is not a construction — but it contains that same text,
+ * so it isn't distinguishable from one by a simple grep, and the honest
+ * fix is to not need the literal at all, not to special-case the scan.
+ */
 export type EvidencedDecision =
-  | (ExecuteDecision & { readonly evidence: readonly Signal[] })
-  | (AskDecision & { readonly evidence: readonly Signal[] })
-  | (DeferDecision & { readonly evidence: readonly Signal[] })
-  | (EscalateDecision & { readonly evidence: readonly Signal[] })
-  | (RefuseDecision & { readonly evidence: readonly Signal[] });
+  | EvidencedExecuteDecision
+  | EvidencedAskDecision
+  | EvidencedDeferDecision
+  | EvidencedEscalateDecision
+  | EvidencedRefuseDecision;
 
 export function toExecuteDecision(
   action: Action,

@@ -143,6 +143,36 @@ export interface InputRejected {
  * fail-closed `escalate` path at all — it is its own `InputRejected`
  * result (see above), with no `action` field, that cannot be confused
  * with a real Decision.
+ *
+ * ⚠️ READING THIS RETURN VALUE — FIX 2 (M4 second independent
+ * verification): `"input-rejected"` MUST be narrowed FIRST, before
+ * matching on any other outcome, and treated as its own case, never as
+ * a variant of "proceed" or of any real `Decision.outcome`. It means
+ * decide() never evaluated anything at all (bad or unreadable `input`) —
+ * NOT that a decision came back cautious. Confusing the two is a
+ * fail-OPEN bug hiding inside code that looks fail-closed.
+ *
+ * Concretely, this compiles with ZERO `tsc --strict` errors, because
+ * `EvidencedDecision | InputRejected` is still just a union of object
+ * types with a shared `outcome` string field — TypeScript will not
+ * infer "there are exactly six outcomes and you must list them all"
+ * from that alone:
+ *
+ *     if (result.outcome === "escalate" || result.outcome === "refuse") {
+ *       handleCarefully(result);
+ *     } else {
+ *       proceed("proceeding: " + result.outcome); // <-- ALSO runs for "input-rejected"!
+ *     }
+ *
+ * That `else` branch treats "nothing was ever evaluated" exactly like a
+ * real `execute` — the opposite of fail-closed — and no change to this
+ * function's return TYPE can prevent it: exhaustiveness over a union is
+ * a discipline a caller has to opt into, not something the type alone
+ * enforces. `matchDecision` (`./match.js`) is that discipline: it takes
+ * one required callback per outcome, `inputRejected` included, and a
+ * call missing any one of them fails to compile. Prefer it — or, for a
+ * lone early-return guard, `isInputRejected` — over a bare `switch`/`if`
+ * chain from M5 onward.
  */
 export function decide(input: DecideInput): EvidencedDecision | InputRejected {
   // Read `input.action` exactly once, before either try block below, and
