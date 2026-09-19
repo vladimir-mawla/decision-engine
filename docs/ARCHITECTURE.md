@@ -11,8 +11,11 @@ paraphrase, so a reader can go look.
 The four stages are also the **import direction**: `lib/contracts` is imported by `lib/signals`, which is
 imported by `lib/decide` (with `lib/cost-model` feeding it the reversibility × cost bar), which is imported
 by `lib/audit`. Nothing imports backward — verified directly, not assumed: `grep -rn '^import' lib/signals/*.ts`
-resolves only to `lib/contracts`; `lib/decide/*.ts` resolves only to `lib/contracts` and `lib/signals`;
-`lib/audit/*.ts` resolves only to `lib/decide`, `lib/signals`, and `lib/contracts`. That one-directional,
+resolves only to `lib/contracts`; `lib/decide/*.ts` resolves only to `lib/contracts`, `lib/signals`, and
+`lib/cost-model` (the same reversibility × cost bar the diagram above already shows feeding in — not an
+omission, just the grep confirming the picture); `lib/audit/*.ts` resolves only to `lib/decide`,
+`lib/signals`, and `lib/contracts`. `lib/cost-model/*.ts` itself resolves only within `lib/cost-model`,
+so nothing feeds back upward. That one-directional,
 acyclic shape is itself a Definition-of-Done gate (`.genesis/DONE.html`, "Dependency direction inward, zero
 cycles").
 
