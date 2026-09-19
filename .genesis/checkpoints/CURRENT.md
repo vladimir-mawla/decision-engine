@@ -1,4 +1,84 @@
 # CURRENT
+- active_loop: second independent verification of the value-constraints change (ADR 0004), same branch
+  `value-constraints`, built from `main`. Not pushed; `main` untouched. This verification APPROVED the
+  underlying value-constraints change outright; these four fixes are follow-up hardening it also asked
+  for, not a re-litigation of the approval.
+- target: FIX 1 [MEDIUM] — ADR 0004 Decision 5's own prose understated the metadata-only replay
+  limitation (scoped it to "a value satisfaction contributing to `execute` cannot replay from the record
+  alone"; the real shape is broader: ANY satisfied constraint can manufacture the single
+  highest-precedence Gap kind — `constraint-violated` — at replay time, purely from `UNDISCLOSED_VALUE`
+  failing every operator by construction, and because that Gap outranks every supplier including
+  `human`, it can flip the reported OUTCOME KIND for an unrelated requirement's real gap — e.g. a
+  recorded `ask` replaying as `escalate` — not only fail to reproduce an `execute`). FIX 2 [LOW] — the
+  `in` operator's set-membership check had only unit-level coverage; mutating it to check substring
+  containment on the actual value instead of allow-list membership broke just 2 of 416 tests, both
+  unit-level, none through the full `decide()` pipeline — its thinnest guard. FIX 3 [LOW] — `reasons.ts`
+  documents at length why `valueRejectionReason` must render `"violated"` and `"type-mismatch"` as
+  byte-identical prose (replay's `UNDISCLOSED_VALUE` always re-derives `"type-mismatch"`, so divergent
+  wording would silently break replay for every real `"violated"` record with no failing test pointing
+  at why), but nothing asserted it directly. FIX 4 [LOW] — neither `evaluateConstraint` nor
+  `parseValueConstraint` capped `in.values.length` (unbounded per-check cost), and `replay()` read
+  `record.requirements` directly with zero validation, unlike its own `signalsFromEvidence`'s per-entry
+  reconstruction discipline for evidence — a tampered/hostile `DecisionAuditRecord` (from storage,
+  another service, or an attacker) could carry an arbitrarily large allow-list, evaluated in full on
+  every constraint check. Carried forward, NOT implemented: two conditions on any future sixth
+  `Decision` outcome (consumers must branch on `RuleTrace.kind`, never `missing.reason` prose; prefer
+  `deny` over the ADR's own earlier `reject` suggestion, which sits too close to `refuse` both
+  orthographically and phonetically), recorded in ADR 0001's amendment section.
+- last_gate: All required gates run for real on branch `value-constraints`, after all four fixes. (1)
+  `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 41 test files, 435 tests, all
+  passing (was 416 at the start of this round; 19 net new, 0 removed or weakened). (3) `npm test --
+  decide` — 16 files/131 tests pass. `npm test -- signals` — 9 files/121 tests pass. `npm test -- audit`
+  — 10 files/86 tests pass. (4) `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`,
+  `/api/health`). (5) `git diff main -- lib/contracts lib/cost-model app` — 0 lines; freeze boundary
+  held. (6) `git status --short` — clean after each commit, no hang. (7) `git branch --show-current` —
+  `value-constraints`. Never pushed; `main` and `.genesis/DONE.html`/`.genesis/PLAN.md` untouched. (8)
+  The `in`-operator mutation (constraint.ts's `"in"` case, membership check on the actual value instead
+  of the allow-list — substring semantics): re-run BEFORE the FIX 2 test existed — 2 of 416 fail, both
+  unit-level (`lib/signals/__tests__/constraint.test.ts`, `gap-analysis.test.ts`). Re-run AFTER adding
+  the end-to-end `decide()` coverage — 3 of 419 fail (the same 2, plus the new end-to-end "satisfied"
+  case), proving the full pipeline now has its own independent guard on this operator. FIX 3 teeth proof:
+  temporarily reworded the `"type-mismatch"` branch in `reasons.ts` to its own sentence and re-ran
+  `lib/decide/__tests__/reasons.test.ts` — 2 of its 3 new tests failed immediately on the exact wording
+  that diverged; reverted, suite green again. Both mutations/rewordings applied and reverted by hand;
+  suite re-confirmed green (435/435) after each revert.
+- last_action: FIX 1 — amended ADR 0004 Decision 5 with the general statement above, the two-requirement
+  (`ask` -> `escalate`) reproduction, and a considered-and-rejected-for-now answer to "should
+  metadata-only replay manufacture this Gap at all" (rejected because it would only ever fire on the
+  replay path, and building it correctly would require `lib/signals` to recognize `lib/audit`'s
+  `UNDISCLOSED_VALUE` sentinel by name, inverting this project's dependency direction, for a case
+  `replay()` already reports correctly via `matches: false`). Added the regression test to
+  `lib/audit/__tests__/value-constraint.test.ts`. FIX 2 — added an end-to-end `decide()` describe block
+  to `lib/decide/__tests__/value-constraint.test.ts` exercising `in`, satisfied ("low-risk" -> execute)
+  and violated ("explicit" -> escalate). FIX 3 — new file `lib/decide/__tests__/reasons.test.ts` pinning
+  the violated/type-mismatch wording collapse by exact equality, plus a check that `malformed`/
+  `unreadable` correctly keep their OWN distinct wording. FIX 4 — added `MAX_IN_VALUES = 64` to
+  `lib/signals/validation.ts` (10-30x headroom over every legitimate example in this project — e.g.
+  `Reversibility`'s own 4 members — while bounding per-check cost regardless of where the constraint
+  came from), enforced in `parseValueConstraint`'s `"in"` case (rejects, never truncates). Exported
+  `parseRequirement` from `lib/audit/validation.ts` and added `requirementsFromRecord` to
+  `lib/audit/replay.ts`, routing `record.requirements` through it — drops (never fabricates or
+  truncates) any requirement that fails to parse, per-entry, mirroring `signalsFromEvidence`'s existing
+  discipline for evidence. New test coverage: `lib/signals/__tests__/validation.test.ts` (previously
+  zero direct coverage of `parseValueConstraint` existed at all) and two new cases in
+  `lib/audit/__tests__/fail-closed.test.ts` proving a 100,000-entry allow-list and a `signalKind`-less
+  requirement, both smuggled onto a hand-built record's `requirements` array, are dropped rather than
+  evaluated or thrown on, and that replay still reproduces the original untampered decision exactly
+  (`matches: true`) instead of the `escalate` the unvalidated path would otherwise have forced. Also
+  amended ADR 0001's amendment section with the two carried-forward conditions (no behavior change).
+  `lib/contracts/**`, `lib/cost-model/**`, `app/**` untouched throughout.
+- next_action: Awaiting the next independent L4 VERIFY on this second round of fixes before it counts as
+  done, per standing guidance. If approved: M6 (three domains with realistic data, `domains/**`) remains
+  the next milestone on `.genesis/PLAN.md`, unchanged by this round.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: unspecified for this follow-up (not one of the original 9 milestones)
+- skills_loaded: [genesis]
+
+---
+
+## Value constraints (ADR 0004) checkpoint — first independent verification (preserved as originally written)
+
 - active_loop: post-M5 independent-verification follow-up — value constraints, branch
   `value-constraints`, built from `main`. Not pushed; `main` untouched.
 - target: fix a real defect an independent verification found in the already-shipped M4/M5 shape:
