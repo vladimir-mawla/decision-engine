@@ -247,6 +247,15 @@ button {
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   padding: 1.1rem 1.2rem 1.25rem;
+  /* Removing the blanket `html, body { overflow-x: hidden }` (below)
+     uncovered more than the one reported label: several grid/flex cells in
+     this card (audit-trail metadata, requirement rows, the missing-info
+     detail line) use minmax(0, …) tracks that can shrink, but still let an
+     unbreakable long token (a signal id run into its own description, a
+     rule-trace sentence) push past the cell edge at narrow widths. One
+     inherited rule fixes all of them the same honest way `.decision-card__
+     action` was fixed: let the text itself give way instead of the box. */
+  overflow-wrap: anywhere;
 }
 
 .outcome-execute.decision-card { border-left-color: var(--outcome-execute); }
@@ -267,9 +276,25 @@ button {
   margin-bottom: 0.6rem;
 }
 
+/* The badge names the outcome; it must never be the side that gives up its
+   width — only the (arbitrarily long) domain/type label should shrink. */
+.decision-card__header .outcome-badge {
+  flex-shrink: 0;
+}
+
 .decision-card__action {
   color: var(--text-faint);
   font-size: 0.78rem;
+  /* A flex item's default min-width is `auto` (its min-content size), which
+     is exactly what let this label refuse to shrink and overflow the card,
+     the page, and — since html/body used to blanket-hide overflow-x — the
+     viewport, invisibly. `min-width: 0` lets it actually shrink; the
+     ellipsis below makes that shrinking legible instead of a silent clip
+     mid-word. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .decision-card__title {
@@ -651,5 +676,4 @@ button {
 html,
 body {
   max-width: 100%;
-  overflow-x: hidden;
 }
