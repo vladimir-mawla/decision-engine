@@ -27,10 +27,18 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  * review count) — that disables a fraud check on the checkout path. Its
  * `costOfBeingWrong` ($250,000, an estimate of fraud exposure during the
  * window before anyone notices) has nothing to do with the diff's size; it
- * comes from what the flag CONTROLS. The same 90%-confidence evidence that
- * would clear D1's bar with room to spare does not clear D7's — not
- * because the evidence is worse, but because the stakes are categorically
- * different, and the model is built to keep those two questions separate.
+ * comes from what the flag CONTROLS. D1 clears its bar on 95%-confidence
+ * review-approval and CI evidence, the only two requirements it declares
+ * (a 90%-confidence static-analysis signal is also captured for D1, but no
+ * requirement of D1's reads it — present, honest evidence, not a driver of
+ * the outcome; see D1's own comment below). D7 escalates on 90%-confidence
+ * evidence across ITS three requirements — review approvals, CI, and
+ * (unlike D1) static analysis itself, which D7 does gate on. D7's evidence
+ * is not weaker than D1's; D7's $250,000 cost of being wrong pushes the
+ * confidence bar this reversibility level demands well above what either
+ * case's evidence supplies. The stakes, not the evidence, are what's
+ * categorically different, and the model is built to keep those two
+ * questions separate.
  *
  * COVERAGE THIS DOMAIN CONTRIBUTES: execute, ask, defer, escalate (value-
  * rejected — the `in` operator — AND human-gap AND both confidence-bar
@@ -128,8 +136,13 @@ const d1: DomainCase = {
   title: "Feature-flag toggle behind a kill switch, internal admin tool",
   narrative:
     "PR #4821 on internal-tools/admin-console flips a feature flag gating a new bulk-export button, " +
-    "behind a kill switch that can instantly revert it. Two approvals, CI green, static analysis reports " +
-    "no findings at high confidence.",
+    "behind a kill switch that can instantly revert it. Two approvals and CI green — the only two things " +
+    "this case's policy actually gates on — clear this case's bar at 95% confidence. A static-analysis " +
+    "pass is also captured, reporting no findings at 90% confidence; a real pipeline would produce " +
+    "exactly this reading, but no requirement below reads it, so — DELIBERATE CHOICE, stated plainly " +
+    "rather than left for a reader to wonder about: this signal is kept, on purpose, as an example of a " +
+    "real system genuinely carrying evidence no policy consumes, not silently dropped and not wired to a " +
+    "requirement it would take no real work to add. It plays no part in this case's outcome.",
   reversibilityRationale:
     "Reversible-no-trace: the flag can be flipped back instantly, and nothing about an internal admin " +
     "tool's bulk-export button leaves residue once reverted — no customer traffic depends on it, no data " +
@@ -144,11 +157,22 @@ const d1: DomainCase = {
     method: "normal",
     branchProtected: true,
   }),
+  // D1 deliberately declares only these two requirements — review approvals
+  // and CI — even though a third signal (below) is also captured. See
+  // this file's own header comment and D1's narrative for why the static-
+  // analysis signal is kept, unconsumed, on purpose, rather than either
+  // wired to a requirement or removed.
   requirements: [reviewApprovalsRequirement(), ciPassedRequirement()],
   prohibitions,
   signals: [
     signal({ id: "sig-d1-approvals", kind: "deploy.reviewApprovals.count", value: 2, source: { kind: "system", system: "code-review-service" }, hoursAgo: 1, confidence: 0.95 }),
     signal({ id: "sig-d1-ci", kind: "ci.testSuite.status", value: "passed", source: { kind: "system", system: "ci-pipeline" }, hoursAgo: 0.5, confidence: 0.95 }),
+    // INERT BY DESIGN: no requirement above has signalKind
+    // "deploy.staticAnalysis.confidence", so decide() never reads this
+    // signal for D1 (contrast D7 below, where the same signal kind DOES
+    // have a requirement and is genuinely decisive). Kept rather than
+    // removed or wired up, as a deliberate, honest example of a real
+    // system carrying a signal no policy consumes — see the file header.
     signal({ id: "sig-d1-scan", kind: "deploy.staticAnalysis.confidence", value: "no-findings", source: { kind: "system", system: "static-analysis" }, hoursAgo: 0.5, confidence: 0.9 }),
   ],
   now: DEMO_NOW,
