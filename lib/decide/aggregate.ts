@@ -63,6 +63,20 @@ export function aggregateConfidence(
     satisfactions.push(satisfaction);
   }
 
+  // FIX 4 (M4 independent verification): documenting the tie-break this
+  // `reduce` already had, in the same voice precedence.ts uses for its own
+  // (DECISION 1's) tie-break, so a reader can tell a decision from an
+  // oversight. When two or more requirements are satisfied at EXACTLY the
+  // same confidence, the strict `<` means the first-occurring one in
+  // `satisfactions` (which mirrors `requirements`'s own order — see the
+  // loop above) keeps `worst`, so it is the one named as `limiting` — a
+  // later candidate at an equal confidence never displaces it. This is
+  // deterministic (decide() always calls this with the same `requirements`
+  // array in the same order for the same input — no-unreplayable-decision)
+  // without inventing a second sort key requirement.ts and this project's
+  // other tie-breaks never asked for. It only matters for *which* signal
+  // gets named in the reason text — the aggregate `confidence` value
+  // itself is identical either way when confidences tie.
   const limiting = satisfactions.reduce((worst, candidate) =>
     candidate.confidence < worst.confidence ? candidate : worst,
   );
