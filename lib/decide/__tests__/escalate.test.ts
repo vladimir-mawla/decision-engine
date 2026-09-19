@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { decide } from "../decide.js";
 import { requiredConfidence } from "../../cost-model/requiredConfidence.js";
 import { isBarSaturated } from "../stakes.js";
-import { sampleAction, fixtureInput, fixtureRequirement, fixtureSignal } from "./fixtures.js";
+import { aggregateConfidence } from "../aggregate.js";
+import { costCeilingReason, insufficientNowReason } from "../reasons.js";
+import { confidence, sampleAction, fixtureInput, fixtureRequirement, fixtureSignal, NOW } from "./fixtures.js";
 import type { Confidence } from "../../contracts/confidence.js";
 import type { Signal } from "../../signals/signal.js";
 
@@ -42,6 +44,20 @@ describe("escalate — DECISION 3: cost-ceiling reached vs complete-but-insuffic
       // any evidence, permanently" reading FIX 2 removed.
       expect(decision.missing.reason).not.toContain("permanently");
       expect(decision.missing.reason).not.toMatch(/\bunreachable\b/);
+
+      // FIX 3 (M4 verification): the two checks above are substring
+      // checks that, it turns out, don't actually pin down WHICH branch
+      // fired — insufficientNowReason's own text also contains "ceiling"
+      // ("has not reached this reversibility level's ceiling"). An exact
+      // equality against the real bar/limiting values, computed
+      // independently here, is what actually catches a mutation that
+      // swaps the two branches (e.g. `isBarSaturated(action)` flipped to
+      // `!isBarSaturated(action)`).
+      const bar = requiredConfidence(action.reversibility, action.costOfBeingWrong);
+      const aggregate = aggregateConfidence([requirement], [signal], NOW);
+      expect(aggregate).not.toBeNull();
+      expect(decision.missing.reason).toBe(costCeilingReason(aggregate!.limiting, confidence(bar)));
+      expect(decision.missing.reason).not.toBe(insufficientNowReason(aggregate!.limiting, confidence(bar)));
     }
   });
 
@@ -58,6 +74,14 @@ describe("escalate — DECISION 3: cost-ceiling reached vs complete-but-insuffic
     if (decision.outcome === "escalate") {
       expect(decision.missing.reason).toContain("A human decides today");
       expect(decision.missing.reason).not.toContain("permanently");
+
+      // Same FIX 3 exact-equality strengthening as the ceiling test above,
+      // from the other direction.
+      const bar = requiredConfidence(action.reversibility, action.costOfBeingWrong);
+      const aggregate = aggregateConfidence([requirement], [signal], NOW);
+      expect(aggregate).not.toBeNull();
+      expect(decision.missing.reason).toBe(insufficientNowReason(aggregate!.limiting, confidence(bar)));
+      expect(decision.missing.reason).not.toBe(costCeilingReason(aggregate!.limiting, confidence(bar)));
     }
   });
 
@@ -77,6 +101,46 @@ describe("escalate — DECISION 3: cost-ceiling reached vs complete-but-insuffic
     expect(insufficient.outcome).toBe("escalate");
     if (unreachable.outcome === "escalate" && insufficient.outcome === "escalate") {
       expect(unreachable.missing.reason).not.toBe(insufficient.missing.reason);
+    }
+  });
+
+  /**
+   * FIX 3 (M4 independent verification): a fourth, independent proof —
+   * table-driven across all four reversibility levels, each checked at
+   * both a saturated and a headroom-remaining cost, asserting the EXACT
+   * reason text expected for that branch. Mutation testing found that
+   * forcing decide.ts's `isBarSaturated(action) ? ... : ...` ternary to
+   * always take one branch broke exactly one of the (pre-FIX-3) 223
+   * tests; this table, plus the two exact-equality checks added above,
+   * gives several independent tests that each fail under that mutation.
+   */
+  it.each([
+    { level: "reversible-no-trace" as const, saturatedCost: 5000, headroomCost: 5 },
+    { level: "reversible-with-cost" as const, saturatedCost: 50_000, headroomCost: 10 },
+    { level: "reversible-with-delay" as const, saturatedCost: 500_000, headroomCost: 10 },
+    { level: "irreversible" as const, saturatedCost: 5_000_000, headroomCost: 10 },
+  ])("$level: saturated cost -> costCeilingReason exactly; headroom cost -> insufficientNowReason exactly", ({ level, saturatedCost, headroomCost }) => {
+    const requirement = fixtureRequirement({ minConfidence: 0.05 });
+    const signal = fixtureSignal({ confidence: 0.1 }); // deliberately far under every level's bar
+
+    const saturatedAction = sampleAction({ reversibility: level, cost: saturatedCost });
+    expect(isBarSaturated(saturatedAction)).toBe(true);
+    const saturatedDecision = decide(fixtureInput({ action: saturatedAction, requirements: [requirement], signals: [signal] }));
+    expect(saturatedDecision.outcome).toBe("escalate");
+    if (saturatedDecision.outcome === "escalate") {
+      const bar = requiredConfidence(saturatedAction.reversibility, saturatedAction.costOfBeingWrong);
+      const aggregate = aggregateConfidence([requirement], [signal], NOW);
+      expect(saturatedDecision.missing.reason).toBe(costCeilingReason(aggregate!.limiting, confidence(bar)));
+    }
+
+    const headroomAction = sampleAction({ reversibility: level, cost: headroomCost });
+    expect(isBarSaturated(headroomAction)).toBe(false);
+    const headroomDecision = decide(fixtureInput({ action: headroomAction, requirements: [requirement], signals: [signal] }));
+    expect(headroomDecision.outcome).toBe("escalate");
+    if (headroomDecision.outcome === "escalate") {
+      const bar = requiredConfidence(headroomAction.reversibility, headroomAction.costOfBeingWrong);
+      const aggregate = aggregateConfidence([requirement], [signal], NOW);
+      expect(headroomDecision.missing.reason).toBe(insufficientNowReason(aggregate!.limiting, confidence(bar)));
     }
   });
 
