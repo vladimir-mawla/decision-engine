@@ -25,8 +25,14 @@ milestone must not be the one that independently verifies it ("a separate agent/
 `CURRENT.md` lets a reader check: none of its roughly 28 mentions of an independent L4 VERIFY pass carries
 a `model:` field or names an agent; only BUILD/fix loops record that field at all. So this is the process's
 own account of its own separation, not a claim the repository's own record can confirm or refute — stated
-here as exactly that, rather than as something "checkable." An Opus orchestrator wrote each milestone's
-brief, reviewed the resulting work, and made the merge decisions throughout. A VERIFY pass's findings are
+here as exactly that, rather than as something "checkable." The same hedge applies to who did the
+orchestrating: on the process's own account, an orchestrator wrote each milestone's brief, reviewed the
+resulting work, and made the merge decisions throughout — that briefs got written, reviews happened, and
+merges happened is not in doubt, only which agent or model sat behind them. The one independent record
+that exists doesn't settle that either way: every one of this repository's nine PRs was authored and
+merged by the `vladimir-mawla` account, with no bot or orchestrator identity anywhere — compatible with a
+human executing merges an orchestrator recommended, or with a human doing the orchestrating directly, and
+nothing in the repository distinguishes between them. A VERIFY pass's findings are
 folded back into the checkpoint and the ADRs by the
 next BUILD pass that addresses them, rather than committed under separate authorship — so which agent
 verified a given milestone isn't visible in `git log` either, only its findings are, in the ADRs and in
