@@ -1,4 +1,4 @@
-export { decide, type DecideInput } from "./decide.js";
+export { decide, type DecideInput, type InputRejected } from "./decide.js";
 
 export {
   type EvidencedDecision,
@@ -29,4 +29,5 @@ export {
   noRequirementsReason,
   internalErrorReason,
   internalInconsistencyReason,
+  unusableInputReason,
 } from "./reasons.js";

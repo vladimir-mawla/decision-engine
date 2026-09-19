@@ -64,6 +64,26 @@ export function noRequirementsReason(): string {
   );
 }
 
+/**
+ * FIX 1 (M4 independent verification) — decide()'s newest case: `input`
+ * itself (not one of its fields) could not be read at all — missing,
+ * `null`/`undefined`, or a hostile object whose `action` getter throws.
+ * There is no `Action` to attach to a `Decision` (every one of the five
+ * outcomes requires one), so this is deliberately worded as "nothing was
+ * evaluated" rather than as any judgment about an action, because no
+ * action was ever actually obtained.
+ */
+export function unusableInputReason(): string {
+  return (
+    "decide() was given something it could not evaluate at all — the input was missing, or its " +
+    "`action` field could not be read without throwing. This is not a decision about any action " +
+    "(there is no action to name, so no confidence bar, prohibition, or gap analysis could even " +
+    "begin): a human must inspect what was actually passed to decide() directly — likely an " +
+    "upstream parse failure or a malformed replayed record, not something this engine can reason " +
+    "about."
+  );
+}
+
 /** Last-resort fail-closed reason for decide()'s outermost guard (an unexpected exception from a hostile or malformed Action/Requirement/Signal/Prohibition) and for internal states that should be structurally unreachable but are still handled rather than assumed away. */
 export function internalErrorReason(): string {
   return (

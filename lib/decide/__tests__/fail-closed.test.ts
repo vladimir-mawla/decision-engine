@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { decide } from "../decide.js";
+import { decide, type DecideInput } from "../decide.js";
 import type { Action } from "../../contracts/action.js";
 import type { Requirement } from "../../signals/requirement.js";
 import type { Signal } from "../../signals/signal.js";
-import { sampleAction, fixtureInput, fixtureRequirement, fixtureSignal } from "./fixtures.js";
+import { sampleAction, fixtureInput, fixtureRequirement, fixtureSignal, NOW } from "./fixtures.js";
 
 /**
  * "Fail closed everywhere. Nothing may throw for any input, however
@@ -177,5 +177,121 @@ describe("fail-closed — decide() never throws, for any hostile input", () => {
     }).not.toThrow();
     expect(decision).toBeDefined();
     expect(decision!.outcome).toBe("escalate");
+  });
+});
+
+/**
+ * FIX 1 (M4 independent verification). The suite above covers a hostile
+ * FIELD on an otherwise-real `Action`/`Requirement`/`Signal`/`Prohibition`.
+ * None of it covered `input` ITSELF being the hostile thing — and that
+ * was exactly the gap: `decide()`'s catch handler used to rebuild its
+ * escalate fallback by re-reading `input.action`, so when `input` itself
+ * was `null`, `undefined`, or a `Proxy` that throws on every access, that
+ * second read threw INSIDE the catch and escaped `decide()` entirely
+ * (reproduced live: `decide(null)` and `decide(undefined)` both threw
+ * `TypeError: Cannot read properties of null/undefined (reading
+ * 'action')`, and the all-throwing Proxy threw its own "boom" error
+ * straight out of the function).
+ *
+ * There is no `Action` in any of these cases — nothing was ever actually
+ * evaluated — so the fix does not force these into a fabricated
+ * `escalate`. It returns `InputRejected`: `outcome: "input-rejected"`,
+ * never one of the five real Decision outcomes, and carrying no `action`
+ * field, so it cannot be mistaken for one.
+ */
+describe("fail-closed — decide() rejects an unusable INPUT rather than fabricating a Decision for it", () => {
+  it("decide(null) does not throw and returns a structured input-rejected result, not a fabricated Decision", () => {
+    let decision;
+    expect(() => {
+      decision = decide(null as unknown as DecideInput);
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+    expect(decision!.outcome).toBe("input-rejected");
+    if (decision!.outcome === "input-rejected") {
+      expect(decision!.reason.length).toBeGreaterThan(0);
+      expect(decision!.evidence).toEqual([]);
+    }
+    expect("action" in decision!).toBe(false);
+  });
+
+  it("decide(undefined) does not throw and returns a structured input-rejected result", () => {
+    let decision;
+    expect(() => {
+      decision = decide(undefined as unknown as DecideInput);
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+    expect(decision!.outcome).toBe("input-rejected");
+  });
+
+  it("a Proxy that throws on every `get` (including `action`) does not throw and returns input-rejected", () => {
+    const hostileInput = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("boom");
+        },
+      },
+    ) as unknown as DecideInput;
+
+    let decision;
+    expect(() => {
+      decision = decide(hostileInput);
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+    expect(decision!.outcome).toBe("input-rejected");
+  });
+
+  it("an object missing `action` entirely (not merely wrongly typed) returns input-rejected", () => {
+    const missingAction = {
+      requirements: [fixtureRequirement()],
+      signals: [fixtureSignal()],
+      prohibitions: [],
+      now: NOW,
+      // no `action` key at all
+    } as unknown as DecideInput;
+
+    let decision;
+    expect(() => {
+      decision = decide(missingAction);
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+    expect(decision!.outcome).toBe("input-rejected");
+  });
+
+  it("an input whose `action` getter throws returns input-rejected, not an escaped exception", () => {
+    const hostileInput = Object.defineProperty(
+      { requirements: [fixtureRequirement()], signals: [fixtureSignal()], prohibitions: [], now: NOW },
+      "action",
+      {
+        enumerable: true,
+        get() {
+          throw new Error("hostile getter on input.action itself");
+        },
+      },
+    ) as unknown as DecideInput;
+
+    let decision;
+    expect(() => {
+      decision = decide(hostileInput);
+    }).not.toThrow();
+    expect(decision).toBeDefined();
+    expect(decision!.outcome).toBe("input-rejected");
+  });
+
+  it("contrast: an action present but of the wrong TYPE (a string) is not input-rejected — decideInner still handles it, unchanged from before FIX 1", () => {
+    // This is the pre-existing "completely garbage top-level inputs" case
+    // above, restated to make the boundary explicit: FIX 1 only rejects
+    // input up front when there is NOTHING usable at all (null/undefined
+    // input, or action itself absent/unreadable) — it does not change
+    // behavior for a present-but-wrong-shaped action, which continues to
+    // fail closed to `escalate` via the ordinary inner try/catch.
+    const decision = decide({
+      action: "not an action" as unknown as Action,
+      requirements: [],
+      signals: [],
+      prohibitions: [],
+      now: NOW,
+    });
+    expect(decision.outcome).not.toBe("input-rejected");
   });
 });
