@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type JSX } from "react";
+import { useMemo, useRef, useState, type JSX, type KeyboardEvent } from "react";
 import { REVERSIBILITY_LEVELS, type Reversibility } from "../lib/cost-model/reversibility.js";
 import { parseCostOfBeingWrong } from "../lib/cost-model/cost.js";
 import type { Action } from "../lib/contracts/action.js";
@@ -120,9 +120,48 @@ function buildRecord(cost: number, reversibility: Reversibility): DecisionAuditR
 export function StakesExplorer(): JSX.Element {
   const [logCost, setLogCost] = useState(() => costToLog(baseCase.action.costOfBeingWrong));
   const [reversibility, setReversibility] = useState<Reversibility>(() => baseCase.action.reversibility);
+  const segmentRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const cost = useMemo(() => logToCost(logCost), [logCost]);
   const record = useMemo(() => buildRecord(cost, reversibility), [cost, reversibility]);
+
+  /**
+   * `role="radiogroup"`/`role="radio"` (below) promise the ARIA APG's
+   * roving-tabindex arrow-key pattern: exactly one segment is a Tab stop
+   * (`tabIndex 0`, the checked one), the rest are `tabIndex -1`, and
+   * Left/Right/Up/Down both move focus AND change the selection, wrapping
+   * at the ends. Tab+Enter/Space already worked (native <button>
+   * semantics); this closes the gap between the roles asserted and the
+   * behaviour actually implemented, rather than quietly downgrading the
+   * roles to match a lesser behaviour.
+   */
+  function handleSegmentKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number): void {
+    const lastIndex = REVERSIBILITY_LEVELS.length - 1;
+    let nextIndex: number | null = null;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        nextIndex = index === lastIndex ? 0 : index + 1;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        nextIndex = index === 0 ? lastIndex : index - 1;
+        break;
+      case "Home":
+        nextIndex = 0;
+        break;
+      case "End":
+        nextIndex = lastIndex;
+        break;
+      default:
+        return;
+    }
+    const nextLevel = REVERSIBILITY_LEVELS[nextIndex];
+    if (nextLevel === undefined) return;
+    event.preventDefault();
+    setReversibility(nextLevel);
+    segmentRefs.current[nextIndex]?.focus();
+  }
 
   return (
     <div className="stakes-explorer">
@@ -164,14 +203,19 @@ export function StakesExplorer(): JSX.Element {
         <div className="stakes-explorer__control">
           <span className="stakes-explorer__control-label">Reversibility</span>
           <div className="stakes-explorer__segmented" role="radiogroup" aria-label="Reversibility">
-            {REVERSIBILITY_LEVELS.map((level) => (
+            {REVERSIBILITY_LEVELS.map((level, index) => (
               <button
                 key={level}
+                ref={(el) => {
+                  segmentRefs.current[index] = el;
+                }}
                 type="button"
                 role="radio"
                 aria-checked={level === reversibility}
+                tabIndex={level === reversibility ? 0 : -1}
                 className={`stakes-explorer__segment${level === reversibility ? " stakes-explorer__segment--active" : ""}`}
                 onClick={() => setReversibility(level)}
+                onKeyDown={(event) => handleSegmentKeyDown(event, index)}
               >
                 {reversibilityShort(level)}
               </button>
