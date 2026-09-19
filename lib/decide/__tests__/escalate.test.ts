@@ -9,12 +9,24 @@ import type { Signal } from "../../signals/signal.js";
 /**
  * Milestone success criterion: "every `escalate` states why no confidence
  * number would have been enough, and distinguishes unreachable-bar from
- * complete-but-insufficient." Plus the human-gap and no-requirements
- * escalate causes, which are also `escalate` but for entirely different
- * reasons (DECISION 1 / an explicit edge case), and must read differently.
+ * complete-but-insufficient." FIX 2 (M4 independent verification)
+ * corrected what that distinction actually IS: the "unreachable" framing
+ * (and its "ownership moves to a human permanently" wording) overclaimed
+ * — it fired from as little as ~$1,800 on the most forgiving
+ * reversibility tier, and it was never literally true that no evidence
+ * could clear the bar (Confidence 1.0 always would — see
+ * reasons.ts's costCeilingReason doc comment and ADR 0002 decision 3's
+ * correction). The distinction that IS real and is tested below: whether
+ * the bar has hit this reversibility level's cost ceiling (more stated
+ * cost cannot raise it further) versus whether the bar still has headroom
+ * (it can). Both remain `escalate`, and the two reasons must still read
+ * differently from each other — that half of the original test intent is
+ * unchanged. Plus the human-gap and no-requirements escalate causes,
+ * which are also `escalate` but for entirely different reasons
+ * (DECISION 1 / an explicit edge case), and must read differently.
  */
-describe("escalate — DECISION 3: unreachable bar vs complete-but-insufficient", () => {
-  it("bar saturated at this reversibility's ceiling ('reversible-no-trace' at cost=5000) reads as unreachable — 'stop trying'", () => {
+describe("escalate — DECISION 3: cost-ceiling reached vs complete-but-insufficient", () => {
+  it("bar saturated at this reversibility's ceiling ('reversible-no-trace' at cost=5000) names the ceiling, without claiming permanent unreachability", () => {
     const action = sampleAction({ reversibility: "reversible-no-trace", cost: 5000 });
     expect(isBarSaturated(action)).toBe(true); // sanity: this action genuinely is saturated
 
@@ -25,8 +37,11 @@ describe("escalate — DECISION 3: unreachable bar vs complete-but-insufficient"
 
     expect(decision.outcome).toBe("escalate");
     if (decision.outcome === "escalate") {
-      expect(decision.missing.reason).toContain("unreachable");
-      expect(decision.missing.reason).toContain("permanently");
+      expect(decision.missing.reason).toContain("ceiling");
+      // The corrected text explicitly disclaims the false "unreachable by
+      // any evidence, permanently" reading FIX 2 removed.
+      expect(decision.missing.reason).not.toContain("permanently");
+      expect(decision.missing.reason).not.toMatch(/\bunreachable\b/);
     }
   });
 

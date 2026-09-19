@@ -19,7 +19,7 @@ import { findProhibition, type Prohibition } from "./prohibition.js";
 import { selectWinningGap } from "./precedence.js";
 import {
   clockInconsistencyReason,
-  unreachableBarReason,
+  costCeilingReason,
   humanGapReason,
   insufficientNowReason,
   internalErrorReason,
@@ -249,7 +249,7 @@ function decideInner(input: DecideInput): EvidencedDecision {
   // permanently" — see reasons.ts's costCeilingReason doc comment for why
   // that overclaimed and what the honest version says instead.
   const reason = isBarSaturated(action)
-    ? unreachableBarReason(aggregate.limiting, bar)
+    ? costCeilingReason(aggregate.limiting, bar)
     : insufficientNowReason(aggregate.limiting, bar);
   return toEscalateDecision(action, { kind: "human-judgment", reason }, signals);
 }

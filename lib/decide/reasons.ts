@@ -30,25 +30,53 @@ export function clockInconsistencyReason(requirement: Requirement): string {
   );
 }
 
-/** DECISION 3b — the required confidence bar has already saturated at this reversibility level's worst-case ceiling (see stakes.ts). "Stop trying." */
-export function unreachableBarReason(limiting: Satisfaction, bar: Confidence): string {
+/**
+ * DECISION 3b — the required confidence bar has already saturated at this
+ * reversibility level's worst-case ceiling (see stakes.ts's
+ * `isBarSaturated`).
+ *
+ * FIX 2 (M4 independent verification) renamed this from the original
+ * `unreachableBarReason` and rewrote its text. The original wording said
+ * the bar was "unreachable by evidence alone" and that "ownership of this
+ * call moves to a human permanently" — and the verification's sweep
+ * showed that reading fires from as little as ~$1,800 on the most
+ * forgiving reversibility tier, which makes "permanently" sound far more
+ * dramatic than what is actually true. It never WAS literally true:
+ * `Confidence` is capped at 1.0 (lib/contracts/confidence.ts) and every
+ * `requiredConfidence` bar is capped below that at 0.99
+ * (requiredConfidence.ts's "why the bar never hits 1.0"), so under
+ * min-aggregation a single signal reporting confidence 1.0 always clears
+ * any bar this model can produce — nothing is EVER truly unreachable by
+ * evidence. What `isBarSaturated` actually, honestly detects is narrower:
+ * this reversibility level's bar has hit ITS OWN ceiling, so a bigger
+ * stated cost-of-being-wrong cannot push the bar any higher than it
+ * already is. That is a true and useful fact — it tells a reader "don't
+ * bother re-arguing the stakes, the model already assumes the worst" — but
+ * it is a different claim from "no evidence could ever clear this", and
+ * conflating the two was the bug. This text now says only the part that is
+ * true.
+ */
+export function costCeilingReason(limiting: Satisfaction, bar: Confidence): string {
   return (
     `Every requirement is met, but aggregate confidence (${limiting.confidence.toFixed(4)}, limited by ` +
-    `"${limiting.requirement.signalKind}") does not clear the required bar (${bar.toFixed(4)}) — and that ` +
-    `bar has already reached the worst-case ceiling this action's reversibility level can ever demand ` +
-    `(raising the stated cost further would not raise it any higher). No confidence number, now or later, ` +
-    `would change that: at this stake level the bar is unreachable by evidence alone, so ownership of ` +
-    `this call moves to a human permanently, not just until better evidence arrives.`
+    `"${limiting.requirement.signalKind}") does not clear the required bar (${bar.toFixed(4)}). That bar has ` +
+    `already reached this action's reversibility level's ceiling — requiredConfidence(reversibility, cost) ` +
+    `has saturated, so a larger stated cost-of-being-wrong would not raise the bar any further; the stakes, ` +
+    `not the evidence, have hit the model's maximum for this reversibility level. This is NOT a claim that no ` +
+    `confidence value could ever clear the bar — a signal reporting confidence 1.0 always would, since the bar ` +
+    `is capped below 1.0 by design — so better or stronger evidence for "${limiting.requirement.description}" ` +
+    `could still, in principle, clear it later. What will not change it is arguing the cost is higher than ` +
+    `stated: that lever has already been pushed as far as this model lets it go. A human decides this one.`
   );
 }
 
-/** DECISION 3c — the bar has real headroom left (not saturated); this specific evidence just doesn't clear it today. "A human decides today." */
+/** DECISION 3c — the bar has real headroom left (has not hit this reversibility level's ceiling); this specific evidence just doesn't clear it today. "A human decides today." */
 export function insufficientNowReason(limiting: Satisfaction, bar: Confidence): string {
   return (
     `Every requirement is met, but aggregate confidence (${limiting.confidence.toFixed(4)}, limited by ` +
     `"${limiting.requirement.signalKind}") does not clear the required bar (${bar.toFixed(4)}) for this ` +
-    `action's stakes. The bar itself still has headroom — it is not at this reversibility level's ceiling — ` +
-    `so this is not a structurally impossible ask: better or additional evidence for ` +
+    `action's stakes. The bar itself still has headroom — it has not reached this reversibility level's ` +
+    `ceiling — so this is not a structurally impossible ask: better or additional evidence for ` +
     `"${limiting.requirement.description}" could clear it later. A human decides today with what is ` +
     `available now.`
   );

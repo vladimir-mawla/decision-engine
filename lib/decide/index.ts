@@ -24,7 +24,7 @@ export { deriveReconsiderAt } from "./reconsider.js";
 export {
   humanGapReason,
   clockInconsistencyReason,
-  unreachableBarReason,
+  costCeilingReason,
   insufficientNowReason,
   noRequirementsReason,
   internalErrorReason,

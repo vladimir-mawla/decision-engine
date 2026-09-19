@@ -59,28 +59,77 @@ never to "doesn't apply."
 ### 3. No gaps, confidence below the bar: two escalate reasons
 
 (`lib/decide/stakes.ts`, `lib/decide/reasons.ts`) Both are `escalate`, but
-the `MissingJudgment.reason` text distinguishes them:
+the `MissingJudgment.reason` text distinguishes them.
 
-- **unreachable** ("stop trying") — the required bar has already reached
-  this reversibility level's worst-case ceiling: `requiredConfidence(rev,
-  cost) >= requiredConfidence(rev, WORST_CASE_COST)`. Both sides of that
-  comparison come from `requiredConfidence` itself (never a bare literal),
-  using cost-model's own public `WORST_CASE_COST` sentinel. Raising the
-  stated cost further cannot raise the bar any higher for this reversibility
-  level — the stake level has already extracted the model's maximum demand.
-- **complete-but-insufficient** ("a human decides today") — the bar still
-  has real headroom; this specific evidence, today, doesn't clear it, but
-  better or additional evidence plausibly could later.
+**CORRECTED by FIX 2, M4 independent verification (2026-09-19).** This
+section originally argued for an **unreachable** ("stop trying, ownership
+moves to a human permanently") reason, distinct from
+**complete-but-insufficient** ("a human decides today"), with `unreachable`
+defined as `requiredConfidence(rev, cost) >= requiredConfidence(rev,
+WORST_CASE_COST)`. The independent verification swept every reversibility
+level and found that condition first fires at:
 
-A note on what this deliberately does NOT mean: under min-aggregation with
-`requiredConfidence` capped below 1.0, "unreachable" cannot mean "no
-confidence value could mathematically ever clear this" — a signal reporting
-confidence 1.0 always would. "Unreachable" here means something narrower and
-honest: the *stakes*, not the evidence, have already maxed out what this
-model will ever demand. A reader could reasonably want a different
-"unreachable" test (e.g. tied to the limiting signal's own provenance kind);
-that was considered and rejected because it would need a second policy
-constant this project does not otherwise have, reopening invariant 3.
+| level | "unreachable" from |
+|---|---|
+| reversible-no-trace | ~$1,800 |
+| reversible-with-cost | ~$20,000 |
+| reversible-with-delay | ~$500,000 |
+| irreversible | ~$1,000,000 |
+
+An ordinary $1,800 action on the *most forgiving* reversibility tier told an
+operator that ownership of the call moves to a human **permanently**. That
+is a behavioural bug wearing a principled distinction, and investigating it
+confirmed the distinction as originally worded does not hold: `Confidence`
+is capped at 1.0 (`lib/contracts/confidence.ts`) and every
+`requiredConfidence` bar is capped below that, at 0.99
+(`requiredConfidence.ts`'s "why the bar never hits 1.0"). Under
+min-aggregation (decision 4), a single signal reporting confidence 1.0
+always clears any bar this model can produce. **Nothing in this model is
+ever truly unreachable by evidence — the original "unreachable" claim was
+false at every cost, not just at the low end the sweep happened to probe.**
+This ADR previously carried a "note on what this deliberately does NOT
+mean" that already half-noticed this (see git history) but still concluded
+the operational meaning was "a human owns this call, permanently" — that
+conclusion did not follow from the premise, and is retracted here.
+
+What `requiredConfidence(rev, cost) >= requiredConfidence(rev,
+WORST_CASE_COST)` actually, honestly detects: this reversibility level's
+bar has hit **its own ceiling** — a larger stated cost-of-being-wrong cannot
+push the bar any higher than it already is. That is a true and useful fact
+(it tells a reader "don't bother re-arguing the stakes, the model already
+assumes the worst"), but it is a *different* claim from "no evidence could
+ever clear this," and conflating the two was the defect.
+
+**Resolution chosen: reframe, not collapse.** The two-way distinction
+between "the bar has hit its cost ceiling" and "the bar still has headroom"
+is kept — it remains genuinely useful information about *why* more stated
+cost won't change the outcome — but the prose and the function name were
+corrected to say only what is computed, never the retracted unreachability
+claim:
+
+- **`costCeilingReason`** (renamed from `unreachableBarReason`) — the bar
+  has already reached this reversibility level's ceiling; raising the
+  stated cost further cannot raise it any higher. Explicitly disclaims
+  "no confidence value could ever clear this" in its own text, and no
+  longer says "permanently."
+- **`insufficientNowReason`** (unchanged name, wording lightly tightened)
+  — the bar still has headroom; this evidence, today, doesn't clear it, but
+  better evidence could, later.
+
+Collapsing to a single escalate reason was considered and rejected: the
+"cost ceiling reached" fact remains true and remains something a reader can
+act on differently (arguing the cost is understated is pointless once the
+ceiling is hit; better evidence is not). Tightening the condition to some
+stricter, genuinely-unreachable test was also considered and rejected — no
+sound definition of "unreachable by evidence" exists in this model, because
+`Confidence`'s and `requiredConfidence`'s own caps guarantee execute is
+never mathematically foreclosed. Reframing preserves the useful part of the
+original distinction while retracting the false part.
+
+A reader could reasonably want a different ceiling test entirely (e.g. tied
+to the limiting signal's own provenance kind); that was considered and
+rejected because it would need a second policy constant this project does
+not otherwise have, reopening invariant 3.
 
 ### 4. Aggregation: `min`, with the limiting signal recorded
 
@@ -160,8 +209,10 @@ where an honest answer is impossible, not applied as a blanket override.
 
 - Positive: the six decisions are each independently testable and
   independently arguable — a reviewer who disagrees with, say, decision 3's
-  "unreachable" definition can replace `isBarSaturated` without touching
-  precedence, prohibition, or aggregation.
+  cost-ceiling definition can replace `isBarSaturated` without touching
+  precedence, prohibition, or aggregation. This is exactly what let FIX 2
+  (M4 verification) correct that decision's own wording without touching
+  the other five.
 - Negative / cost: `decide()`'s `DecideInput` is larger than the brief's
   `decide(action, signals)` shorthand (it also needs `requirements` and
   `prohibitions`) — every caller (M6's domains) must supply all four fields
