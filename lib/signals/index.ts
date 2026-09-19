@@ -29,6 +29,11 @@ export { type Requirement, type Supplier } from "./requirement.js";
 export { analyzeGaps, type Gap } from "./gap.js";
 
 export {
+  checkHumanSupplierAgainstSatisfyingSignal,
+  type SupplierPlausibilityHazard,
+} from "./supplier-plausibility.js";
+
+export {
   parseSignal,
   parseProvenance,
   type SignalValidationError,

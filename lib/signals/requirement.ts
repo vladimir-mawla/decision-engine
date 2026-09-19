@@ -29,6 +29,60 @@ import type { Milliseconds } from "./time.js";
  * the product of a gap in evidence at all, so it has no place in a
  * taxonomy of "who could supply the missing thing." A `refuse` decision is
  * M4's job to produce directly from policy, never from gap analysis.
+ *
+ * HAZARD FOR M6 DOMAIN AUTHORS — READ BEFORE AUTHORING A REQUIREMENT:
+ * ─────────────────────────────────────────────────────────────────────────
+ * `supplier` is a plain declaration a domain author writes down. Nothing
+ * in this module — no type, no runtime check — validates that the
+ * `Supplier` chosen actually matches the requirement's real nature.
+ * TypeScript enforces that `supplier` is *one of the three known shapes*;
+ * it cannot enforce that it is the *correct* one, because "correct" here
+ * is a fact about the business domain, not about the data's shape.
+ *
+ * Concrete wrong-outcome consequence: a domain author writes a requirement
+ * for "compliance sign-off for a cross-border transfer" — this file's own
+ * example, three paragraphs up — and labels its supplier
+ * `{ kind: "counterparty", party: "customer" }` instead of
+ * `{ kind: "human", reason: "..." }`, reasoning (wrongly) that the
+ * customer is "who's asking" so the customer is "who to ask." Nothing
+ * here objects; the type-checker is satisfied either way. Downstream in
+ * M4, an unmet Gap for this requirement carries that `supplier` verbatim
+ * and maps directly to `AskDecision` (lib/contracts/decision.ts) instead
+ * of `EscalateDecision` — the system asks the customer to bless their own
+ * cross-border transfer instead of routing it to a human reviewer. That
+ * is a plausible-looking, silently wrong outcome: nothing crashes, nothing
+ * logs a warning, and the customer has every incentive to answer "yes."
+ * The mirror-image mistake — labelling something `human` that a
+ * counterparty could have answered directly — produces the opposite harm:
+ * a question that should have gone to the customer instead sits in a
+ * human reviewer's queue, and a real answer that WAS available is never
+ * asked for.
+ *
+ * No general mechanical check for this exists, and this module
+ * deliberately does not invent one that only looks like it works — e.g.
+ * pattern-matching on `signalKind`/`description` text ("if the string
+ * contains 'compliance', require `human`") would be an illusory guard: it
+ * would pass domain-author review as "validated," lull a reviewer into
+ * skipping the real judgment call, and still say nothing about a
+ * requirement named "manager.approval" or "internal.sign-off" that never
+ * mentions the word it's keyed on. That is worse than no check, because
+ * it looks like safety.
+ *
+ * One narrow, HONEST partial check does exist, because the `human`
+ * variant's own `reason` field carries a checkable claim on its face — "no
+ * automated signal can establish this." See
+ * `checkHumanSupplierAgainstSatisfyingSignal` in
+ * `./supplier-plausibility.js`: it flags the one case where that claim is
+ * mechanically self-contradicted — a `human`-supplier requirement actually
+ * satisfied by a signal whose own `Provenance.kind` is `"counterparty"`,
+ * i.e. a bare, unverified self-report from the party being decided about.
+ * It is opt-in (not wired into `analyzeGaps`), and it does NOT cover the
+ * `counterparty`/`time` mislabelling direction at all, nor the `absent`-Gap
+ * case (there is no signal to compare against when nothing was supplied).
+ * For everything that check does not cover, the only real defense is a
+ * human reviewer reading this comment and ADR 0001 before merging a new
+ * Requirement — this documentation is deliberately written to carry that
+ * weight rather than pretend a type system can.
  */
 export type Supplier =
   | { readonly kind: "counterparty"; readonly party: string }
