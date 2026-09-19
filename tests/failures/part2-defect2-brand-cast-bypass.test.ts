@@ -8,7 +8,7 @@ import { makeAction, makeInput, makeRequirement, makeSignal, NOW } from "./helpe
 
 /**
  * ══════════════════════════════════════════════════════════════════════
- * PART TWO — REGRESSION: real historical defect, M1
+ * PART TWO — REGRESSION: real historical defect, M1 — HONEST, PARTIAL PIN
  * ══════════════════════════════════════════════════════════════════════
  * DEFECT (M1, found by independent verification): `CostOfBeingWrong` is a
  * branded `number` specifically so a plain number cannot be ASSIGNED where
@@ -35,6 +35,24 @@ import { makeAction, makeInput, makeRequirement, makeSignal, NOW } from "./helpe
  * ACTUALLY happens downstream? The brand offers no runtime protection at
  * all once bypassed; the only real question is whether anything else in
  * the pipeline still fails closed.
+ *
+ * WHY THIS IS LABELLED "HONEST, PARTIAL PIN", CONSISTENTLY WITH DEFECTS 7
+ * AND 9 (STATED PLAINLY, NOT GLOSSED OVER): the original fix for this
+ * defect is the frozen source-scan test named above, at a frozen location
+ * this milestone cannot touch or duplicate. Nothing below re-proves THAT
+ * fix — it cannot, by construction, since re-proving it would mean
+ * asserting on `brand-casts.test.ts` itself. What this file pins instead
+ * is a related but genuinely different thing: given that the brand is
+ * bypassed (which it demonstrably can be, one line below), does the
+ * pipeline downstream of the bypass still fail closed? That is real,
+ * concrete, and pinned directly — but it is not a pin of the original
+ * fix location, the same honest gap defects 7 and 9 name explicitly for
+ * their own frozen-file and non-behavioral cases respectively. Calling
+ * this one a plain "(real defect)" while 7 and 9 carry the "HONEST,
+ * PARTIAL PIN" qualifier would apply two different honesty standards to
+ * three structurally similar situations; this comment (and the
+ * corresponding FIX 4 commit) resolves that by qualifying this one the
+ * same way.
  */
 describe("REGRESSION (M1) — a bypassed CostOfBeingWrong brand carries no runtime protection of its own", () => {
   it("the double cast the frozen source-scan exists to forbid compiles and runs with zero runtime error", () => {
