@@ -29,8 +29,8 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  *
  * What separates them is D7's `costOfBeingWrong` ($250,000, an estimate of
  * fraud exposure during the window before anyone notices) and its
- * `irreversible` reversibility — exactly the two fields of an `Action` that
- * `decide()` reads. Neither has anything to do with the diff's size; both
+ * `irreversible` reversibility — exactly the two fields that decide the
+ * outcome here. Neither has anything to do with the diff's size; both
  * come from what the flag CONTROLS. `lib/domains/__tests__/coverage.test.ts`
  * pins this independently, reading D7's `linesChanged` and asserting it is
  * 1, so the "tiny diff, huge cost" case cannot quietly stop being tiny.
