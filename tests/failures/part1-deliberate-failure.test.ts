@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { decide } from "../../lib/decide/decide.js";
 import { recordDecision } from "../../lib/audit/record.js";
 import { replay } from "../../lib/audit/replay.js";
-import { requiredConfidence } from "../../lib/cost-model/requiredConfidence.js";
+import { requiredConfidence, REQUIRED_CONFIDENCE_TEST_ONLY } from "../../lib/cost-model/requiredConfidence.js";
 import { HOURS, makeAction, makeInput, makeRequirement, makeSignal, mustCapturedAt, NOW } from "./helpers.js";
 
 /**
@@ -47,8 +47,14 @@ import { HOURS, makeAction, makeInput, makeRequirement, makeSignal, mustCaptured
  * ─────────────────────────────────────────────────────────────────────
  * An irreversible, $50,000-cost-of-being-wrong action (a payout to a newly
  * added payee — wiring money to a bank account that, once paid, cannot be
- * clawed back if the payee turns out to be fraudulent). The ONLY evidence
- * is a single signal, self-reported by the payee's own onboarding flow
+ * clawed back if the payee turns out to be fraudulent) is used below as
+ * the WORKED CASE. It is illustrative, not the boundary of what breaks —
+ * it is this project's own headline (reversibility, cost) pair
+ * (requiredConfidence.ts's header comment), which is exactly why it is
+ * kept below and why it grounds the argument concretely rather than
+ * abstractly. THE REAL CEILING, stated honestly further down, is far
+ * stronger than "$50,000 can slip through." The ONLY evidence is a single
+ * signal, self-reported by the payee's own onboarding flow
  * (`Provenance.kind: "counterparty"` — the party the decision is ABOUT,
  * not an independent verifier), claiming "identity verified" at confidence
  * 0.99. In this scenario the payee is lying: the identity was never really
@@ -62,6 +68,23 @@ import { HOURS, makeAction, makeInput, makeRequirement, makeSignal, mustCaptured
  * gates this action — no prohibition, no human-supplier requirement, no
  * value constraint — so decide() has exactly one thing to look at, and it
  * looks at it exactly as designed: the number, taken at face value.
+ *
+ * THE REAL CEILING — WHY $50,000 UNDERSTATES ITS OWN WEAKNESS
+ * ─────────────────────────────────────────────────────────────────────
+ * `requiredConfidence` clamps its result to `MAX_BAR = 0.99`
+ * (requiredConfidence.ts) for every reversibility level, at every cost —
+ * the curve asymptotes toward 0.99 and is explicitly never allowed past
+ * it. That means there is no dollar amount, however large, at which the
+ * bar can rise past what a bare, self-reported 0.99 already clears: the
+ * $50,000 figure above is not where this breaks, it is merely where this
+ * project's own worked example happens to sit on a curve that was already
+ * flat by then. The honest statement of this weakness is therefore not
+ * "a $50,000 irreversible action can slip through on a lying signal" — it
+ * understates the actual ceiling — it is: **no stake is high enough to
+ * stop a signal that claims 0.99.** "THE REAL CEILING" test below proves
+ * this directly at $5,000,000 — a hundred times the worked case's cost —
+ * getting the identical result, so the claim is demonstrated, not merely
+ * asserted.
  */
 describe("PART ONE — deliberate failure: a fabricated 0.99 clears the bar exactly like a real one", () => {
   const action = makeAction({
@@ -187,6 +210,43 @@ describe("PART ONE — deliberate failure: a fabricated 0.99 clears the bar exac
     if (decisionFromSelfReport.outcome === "execute" && decisionFromHumanReview.outcome === "execute") {
       expect(decisionFromSelfReport.confidence).toBe(decisionFromHumanReview.confidence);
       expect(decisionFromSelfReport.confidenceBar).toBe(decisionFromHumanReview.confidenceBar);
+    }
+  });
+
+  it("THE REAL CEILING: the identical fabricated 0.99 still executes at $5,000,000 — a hundred times the worked case's cost — because requiredConfidence never rises past MAX_BAR", () => {
+    // $5,000,000, matching the independent verification's own figure: a
+    // deliberately extreme cost, chosen to demonstrate the ceiling is not
+    // "somewhere past $50,000" but genuinely nowhere — no cost this
+    // project's model can express raises the bar past a bare 0.99.
+    const extremeAction = makeAction({
+      domain: "payments",
+      type: "payout.newPayee",
+      parameters: { payeeId: "payee-77213", amountUsd: 5_000_000 },
+      cost: 5_000_000,
+      reversibility: "irreversible",
+    });
+
+    const extremeBar = requiredConfidence("irreversible", extremeAction.costOfBeingWrong);
+    // Clamped to the documented ceiling, not just "close to" $50,000's bar
+    // — this IS the same number, exactly, not a coincidentally similar one.
+    expect(extremeBar).toBe(REQUIRED_CONFIDENCE_TEST_ONLY.MAX_BAR);
+    expect(extremeBar).toBeCloseTo(0.99, 10);
+
+    const extremeInput = makeInput({
+      action: extremeAction,
+      requirements: [requirement],
+      signals: [fabricatedSignal],
+      now: NOW,
+    });
+
+    const decision = decide(extremeInput);
+    // Same fabricated signal, a hundred times the cost, identical result:
+    // the $50,000 worked case above was never the ceiling, only a
+    // convenient point on a curve that had already gone flat.
+    expect(decision.outcome).toBe("execute");
+    if (decision.outcome === "execute") {
+      expect(decision.confidence).toBeCloseTo(0.99, 5);
+      expect(decision.confidenceBar).toBe(REQUIRED_CONFIDENCE_TEST_ONLY.MAX_BAR);
     }
   });
 });
