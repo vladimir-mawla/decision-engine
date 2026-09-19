@@ -124,5 +124,38 @@ adds little the way it does for a genuinely ambiguous cost-ceiling escalate. Thi
 call now — it is flagged as the natural next amendment, not decided today, precisely so it isn't smuggled
 in without its own argument.
 
+### Carried forward for the next milestone that revisits this (2026-09-19, second independent verification)
+
+A second independent verification, reviewing the value-constraints work above, agreed with this ADR's own
+position — **do not add the sixth outcome now** — and attached two conditions for whichever future
+milestone does, recorded here explicitly so neither is rediscovered the hard way or skipped by accident.
+Neither is implemented in this pass.
+
+1. **Any consumer written between now and that future milestone must branch on `RuleTrace.kind`, never on
+   `missing.reason` prose.** Point 2 above already establishes the mechanism (`"confidence-bar"` vs.
+   `"value-rejected"`); this condition is about what it's FOR: as long as both causes ride on `escalate`,
+   the ONLY mechanically reliable way to tell them apart is `RuleTrace.kind`. A consumer that instead
+   pattern-matches or substring-searches `missing.reason` (e.g. checking for the word "ceiling" — see
+   `reasons.ts`'s own `costCeilingReason`/`insufficientNowReason`, which FIX 3 of the M4 verification
+   already had to disambiguate by exact equality rather than substring, for exactly this reason) is one
+   prose rewording away from silently misclassifying a decision. Getting this right NOW, while there are
+   only two `escalate` causes and few consumers, is what turns "promote value-rejection to its own outcome"
+   into a straightforward refactor (swap which field a consumer reads) later — rather than a rewrite (find
+   every consumer that guessed at prose and fix each one).
+2. **If/when the sixth outcome is added, `reject` is a poor name choice — prefer `deny`.** This ADR's own
+   text above already proposes `reject`, "paired conceptually with `execute`." The verification's objection
+   is not to the pairing, it's to the word itself: `reject` sits immediately beside `refuse` — the outcome
+   this very ADR defines as "independent of who is asking or how certain anyone is" — both orthographically
+   (`re-j-ect` / `re-f-use`, same length, same `re-` prefix, one letter apart in the part a skimming reader
+   actually looks at) and phonetically (both start `/rɪ-/` and land on a soft consonant). Two outcomes whose
+   NAMES are this close, when their MEANINGS are the whole point of keeping them distinct (`refuse` =
+   categorical, evidence-independent; a value-rejection = evidence-dependent, could go the other way with a
+   different value), invites exactly the kind of misreading a five-or-six-outcome model exists to prevent —
+   a reader skimming `RuleTrace`/`Decision.outcome` values, or a future engineer typo'ing one for the other
+   in a `switch`, has a real chance of confusing them. `deny` is not merely different, it is DISTINCT on both
+   axes that matter here (different length, different terminal consonant, different vowel sound: `/dɪˈnaɪ/`
+   vs. `/rɪˈfjuːz/`), while still reading naturally alongside `execute`/`ask`/`defer`/`escalate`/`refuse` as
+   a plain English verb naming what happened. Prefer `deny` over `reject` if/when this is built.
+
 <!-- Copy this file to NNNN-<slug>.md for each irreversible decision.
      Then add a one-line pointer in wiki/index.md if it becomes something later milestones need to find. -->
