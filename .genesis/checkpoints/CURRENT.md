@@ -1,4 +1,87 @@
 # CURRENT
+- active_loop: post-M5 independent-verification follow-up — value constraints, branch
+  `value-constraints`, built from `main`. Not pushed; `main` untouched.
+- target: fix a real defect an independent verification found in the already-shipped M4/M5 shape:
+  `decide()` never reads a signal's *value*, so the content of evidence (e.g. a fraud assessment reading
+  `CLEAN` vs. `FRAUDULENT`) never affects any decision. Deliberately touches three previously-frozen,
+  independently-verified modules — `lib/signals/`, `lib/decide/`, and (by consequence) `lib/audit/` —
+  while keeping `lib/contracts/`, `lib/cost-model/`, and `app/` genuinely frozen throughout.
+  `.genesis/decisions/0004-value-constraints.md` is the full record; `.genesis/decisions/0001-five-
+  outcome-model.md` is amended (not silently reused) to cover the new case.
+- last_gate: All required gates run for real on branch `value-constraints`. (1) `npm run typecheck` —
+  clean, zero errors, both configs. (2) `npm test` — 39 test files, 416 tests, all passing (was 327 at
+  the start of this change; 89 net new, 0 removed or weakened). (3) `npm test -- decide` — 15 files/126
+  tests, all under `lib/decide/`, pass. `npm test -- signals` — 8 files/110 tests, all under
+  `lib/signals/`, pass. `npm test -- audit` — 10 files/83 tests, all under `lib/audit/`, pass. (4)
+  `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`, `/api/health`). (5) `git diff
+  main -- lib/contracts lib/cost-model app` — 0 lines; freeze boundary held. (6) `git status --short` —
+  clean after each commit, no hang. (7) `git branch --show-current` — `value-constraints`. Never pushed;
+  `main` and `.genesis/DONE.html`/`.genesis/PLAN.md` untouched. (8) Mutation self-check: gutting
+  `evaluateConstraint` to always return `{ satisfied: true }` breaks 47 of 416 tests (spread across
+  `lib/signals/__tests__/constraint.test.ts`, `gap-analysis.test.ts`, `lib/decide/__tests__/value-
+  constraint.test.ts`, `fail-closed.test.ts`, `lib/audit/__tests__/rule.test.ts`, `value-
+  constraint.test.ts`) — well past the "one or two, add more" bar. A second mutation (flipping the new
+  precedence rank for a value rejection from highest to lowest precedence) breaks 8 tests. Both mutations
+  applied and reverted by hand; suite re-confirmed green (416/416) after each revert.
+- last_action: Added value constraints, `Requirement.valueConstraint?: ValueConstraint` (lib/signals/
+  requirement.ts). New file `lib/signals/constraint.ts`: `ValueConstraint` (4 operators — `equals`/
+  `lte`/`gte`/`in`, each justified against three real domains, with an explicit list of deliberately
+  omitted operators — no `notEquals`, no strict `lt`/`gt`, no regex/substring, no compound combinators,
+  no cross-signal comparison), `evaluateConstraint` (fails closed to `malformed`/`type-mismatch`/
+  `violated`, never throws), `checkValueConstraint` (the first real decision-path caller of
+  `Signal.read(maxAge, now)` — used only AFTER a candidate already cleared freshness and confidence).
+  `lib/signals/gap.ts` gets a fourth Gap reason, `"constraint-violated"` — carries no `supplier` field
+  at all (nothing is missing; the counterparty/time/human taxonomy doesn't apply to evidence that
+  arrived and said no). `lib/decide/satisfaction.ts` mirrors the same check, preserving the "the two
+  modules must agree" property. `lib/decide/precedence.ts` gets `gapPrecedenceRank`, ranking a
+  constraint violation ahead of every supplier kind including `human` (evidence that already says no is
+  more decisive than evidence merely missing). `lib/decide/decide.ts` routes a constraint-violated gap to
+  `escalate` with a new reason (`lib/decide/reasons.ts`'s `valueRejectionReason`) — argued at length in
+  ADR 0004 and ADR 0001's amendment for why `escalate` (not `refuse`, not a clean sixth outcome, which
+  `lib/contracts/` being frozen for this change rules out implementing now) is the least-wrong fit.
+  `lib/audit/rule.ts`'s `RuleTrace` gets its own `"value-rejected"` variant (never folded into `"gap"` or
+  `"confidence-bar"`) naming the constraint but never the value; `lib/audit/validation.ts` parses both
+  the new `Requirement.valueConstraint` field and the new `RuleTrace` variant, failing closed on either.
+  DISCOVERED AND FIXED BY THIS ITERATION'S OWN MUTATION-TESTING, NOT ASSUMED CORRECT: a real replay
+  subtlety M5's own soundness proof did not anticipate, because it depended on `decide()` never calling
+  `.read()` — now false. (a) A value REJECTION replays exactly from metadata alone once
+  `valueRejectionReason` renders `"violated"` and `"type-mismatch"` as the identical sentence (both are
+  "not satisfied" from `UNDISCLOSED_VALUE`'s perspective at replay time, even when the original, real
+  value produced `"violated"` specifically) — documented in reasons.ts with the replay reasoning spelled
+  out. (b) A value SATISFACTION (an execute decision that depended on a constraint clearing) cannot
+  replay from metadata alone — `UNDISCLOSED_VALUE` fails any real constraint unconditionally — and this
+  is stated honestly as `matches: false` (detectable, never a silent false match, never a crash) rather
+  than hidden. `lib/audit/replay.ts`'s `replay()` gains an optional third parameter, `knownSignals`,
+  mirroring ADR 0003's own precedent for `Prohibition`: a caller holding the real, original signals may
+  supply them, matched against the recorded snapshot by id AND by matching metadata (a same-id signal
+  with different metadata is rejected as an impostor), to get full-fidelity replay including constraint
+  satisfaction — never persisted, never leaked into the record itself, opt-in exactly like
+  `discloseSignalValue`. Re-ran and re-confirmed the pre-existing M5 value-leak tests
+  (`lib/audit/__tests__/record.test.ts`, `disclose.test.ts`) still pass unmodified, plus new value-leak
+  tests specific to the new Gap/RuleTrace shapes (`lib/audit/__tests__/value-constraint.test.ts`,
+  `lib/signals/__tests__/gap-analysis.test.ts`). `lib/contracts/**`, `lib/cost-model/**`, `app/**`
+  untouched throughout (`git diff main` on all three stayed empty after every commit).
+  Wrote `.genesis/decisions/0004-value-constraints.md`; amended `.genesis/decisions/0001-five-outcome-
+  model.md` explicitly (a new "Amendment — 2026-09-19" section plus a corrected `escalate` bullet, both
+  stating what changed and why, never silently editing the original prose out from under a future
+  reader).
+- next_action: Awaiting an independent L4 VERIFY before this change counts as done, per standing
+  guidance (independent APPROVE required before marking a milestone/change done, even though marking it
+  done afterward is standing-OK once approved). If approved: M6 (three domains with realistic data,
+  `domains/**`) is the next milestone on `.genesis/PLAN.md`, and would be the first real user of
+  `valueConstraint` against non-synthetic-feeling signals (a refund domain's fraud/dispute signals, a
+  deploy domain's test/review signals, a moderation domain's classifier signals) — it should also revisit
+  whether `RuleTrace.kind === "value-rejected"` needs surfacing in a demo UI distinctly from an ordinary
+  cost-ceiling escalate, now that the two are mechanically distinguishable.
+- model: claude-opus-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: unspecified for this follow-up (not one of the original 9 milestones)
+- skills_loaded: [genesis]
+
+---
+
+## M5 checkpoint (preserved as originally written)
+
 - active_loop: L1 BUILD — M5 (`lib/audit/`), branch `m5-audit`, built from `main`. Not pushed;
   `main` untouched.
 - target: M5 — The audit trail (a full audit record per decision — inputs, signals, reasoning,
