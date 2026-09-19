@@ -75,7 +75,11 @@ All five outcomes, and all four escalate causes, appear at least once across the
   genuinely shipped and were caught by independent verification** — three of the nine are honestly labeled
   in their own file headers as *partial* pins, because the original defect lived inside a file frozen since
   an earlier milestone and can't be re-exercised without touching that freeze; the other six pin the exact
-  original break through the public API alone.
+  original break through the public API alone. The same suite also includes
+  `tests/failures/part3-new-attacks.test.ts` — M7's dedicated "find something new" pass, run against the
+  public API only. It found no new defect; reported here as-is, because an adversarial pass that honestly
+  comes back empty is still worth stating plainly, not quietly dropped for being less dramatic than the
+  nine pins that did find something.
 - **The deliberate failure test** (`tests/failures/part1-deliberate-failure.test.ts`) is the sharpest
   weakness this project could find in its own mechanism, not a contrived edge case: see Limits, first
   bullet.
