@@ -116,17 +116,29 @@ rejections**, approved on the fifth. The freeze boundary held at zero diff again
 and the test suite stayed at 541 tests / 58 files throughout — every one of the four rejections was about
 documentation, never code.
 
-What those four rejections were actually for is more useful than the count: (1) reading the fixed
-`Co-Authored-By` trailer, above, as evidence of who built anything; (2) asserting a clean
-Opus-orchestrates/Sonnet-builds split that `checkpoints/CURRENT.md`'s own mixed `model:` field contradicts;
-(3) claiming maker ≠ checker "held, checkably, on every milestone" when no independent VERIFY pass in that
-same checkpoint records an agent identity at all; and (4) extending a disclosed limit (`decide()`'s
-fail-closed `try`/`catch`, ADR 0002) into a stronger consequence — "nothing in the record marks the
-difference" — that `lib/audit/rule.ts`'s dedicated `internal-error` `RuleTrace` variant directly refutes.
-Three of those four (1, 2, and 3) originated in instructions or characterizations the orchestrator gave the
-fixing agent while directing the repair, not in anything the fixing agent constructed on its own; the
-fourth (4) was the fixing agent's own overstatement, restating a real, disclosed limit more strongly than
-either the ADR or the code actually supported.
+What those four rounds were actually for is more useful than the count — by round, not by a tidy
+one-reject-one-reason tally, because it wasn't one (an earlier draft of this very paragraph assumed it was,
+which is worth naming plainly rather than quietly correcting: the record-smoothing this milestone kept
+getting rejected for showed up once more in the paragraph written to document it):
+
+- **Round 1** — reading the fixed `Co-Authored-By` trailer, above, as evidence of who built anything.
+- **Round 2** — two distinct causes in one verdict: **(a)** asserting a clean
+  Opus-orchestrates/Sonnet-builds split, "a different agent for BUILD than for VERIFY on every milestone,"
+  that `checkpoints/CURRENT.md`'s own mixed `model:` field contradicts; and **(b)** the README limits
+  bullet's claim that "nothing in the record marks the difference" between an escalate and a masked
+  internal defect, directly contradicted by `lib/audit/rule.ts`'s dedicated `internal-error` `RuleTrace`
+  variant.
+- **Round 3** — claiming maker ≠ checker "held, checkably, on every milestone" when no independent VERIFY
+  pass in that same checkpoint records an agent identity at all.
+- **Round 4** — the unhedged sentence "An Opus orchestrator wrote each milestone's brief, reviewed the
+  resulting work, and made the merge decisions throughout," in tension with the one independent record
+  that exists: all nine merged PRs on this repository show `mergedBy: vladimir-mawla`, no bot or
+  orchestrator identity anywhere.
+
+Three of these five causes (2a, 3, and 4) originated in instructions or characterizations the orchestrator
+gave the fixing agent while directing the repair, not in anything the fixing agent constructed on its own;
+the other two (1 and 2b) were the fixing agent's own — the original trailer misreading, and a real,
+disclosed ADR limit restated more strongly than either the ADR or the code actually supported.
 
 This is not the process working as intended. It is a documentation milestone — about not making claims the
 repository can't support — that took five rounds to stop making claims the repository couldn't support,
