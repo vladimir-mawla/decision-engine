@@ -8,7 +8,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["lib/**/*.test.ts"],
+    // app/ is included so the milestone drift guard can run. The dependency
+    // direction is unaffected: app/ may import lib/, never the reverse, and
+    // no lib/ test imports anything under app/.
+    include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
     watch: false,
   },
 });

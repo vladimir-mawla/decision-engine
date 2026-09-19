@@ -10,6 +10,10 @@ build/
 dist/
 *.tsbuildinfo
 
+# Next.js generates this triple-slash-reference file itself on every
+# `next dev`/`next build`; it's local wiring, not project content.
+next-env.d.ts
+
 # Environment — .env.example IS committed, it is a required deliverable
 .env
 .env.local
