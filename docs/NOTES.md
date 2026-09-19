@@ -107,6 +107,34 @@ throws, falsifying its own doc comment. The other four findings from that same p
 formatting, and two lower-severity aggregation/tie-break gaps. All five were fixed before a second
 independent pass approved the milestone outright.
 
+**A boundary worth being precise about, now that M9's own review has finished:** the "nine passes" above
+covers this project's *build* — M1 through M8, plus the value-constraints follow-up — checked directly
+against the L4 write-ups in PR comments #1–#9, and that count stands as written; it does not include M9's
+own review, because M9 is documentation and verification only, not build. M9 (this milestone, the ninth on
+`.genesis/PLAN.md`) took **five independent verification rounds of its own, four of them formal
+rejections**, approved on the fifth. The freeze boundary held at zero diff against `main` on every round,
+and the test suite stayed at 541 tests / 58 files throughout — every one of the four rejections was about
+documentation, never code.
+
+What those four rejections were actually for is more useful than the count: (1) reading the fixed
+`Co-Authored-By` trailer, above, as evidence of who built anything; (2) asserting a clean
+Opus-orchestrates/Sonnet-builds split that `checkpoints/CURRENT.md`'s own mixed `model:` field contradicts;
+(3) claiming maker ≠ checker "held, checkably, on every milestone" when no independent VERIFY pass in that
+same checkpoint records an agent identity at all; and (4) extending a disclosed limit (`decide()`'s
+fail-closed `try`/`catch`, ADR 0002) into a stronger consequence — "nothing in the record marks the
+difference" — that `lib/audit/rule.ts`'s dedicated `internal-error` `RuleTrace` variant directly refutes.
+Three of those four (1, 2, and 3) originated in instructions or characterizations the orchestrator gave the
+fixing agent while directing the repair, not in anything the fixing agent constructed on its own; the
+fourth (4) was the fixing agent's own overstatement, restating a real, disclosed limit more strongly than
+either the ADR or the code actually supported.
+
+This is not the process working as intended. It is a documentation milestone — about not making claims the
+repository can't support — that took five rounds to stop making claims the repository couldn't support,
+stated here plainly rather than folded quietly into the "one reject in nine" figure above, which it is not
+part of. One more thing worth saying about this specific paragraph: the fifth round's approval covered the
+wording that existed at that point: it did not, and could not, approve this paragraph, which is being
+added afterward, precisely so this document doesn't contradict its own PR thread the moment it merges.
+
 **Two concrete examples, because the fact that most passes approved is less interesting than what the one
 rejection, and later passes, actually caught:**
 
