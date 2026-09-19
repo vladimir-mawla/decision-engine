@@ -1,4 +1,61 @@
 # CURRENT
+- active_loop: M9 (deliverables — the last milestone on `.genesis/PLAN.md`), branch `m9-deliverables`,
+  built from `main`. Not pushed; `main` untouched. Docs and verification only, per this milestone's own
+  freeze boundary (`docs/**`, `README.md`, `.env.example`) — `git diff main -- lib tests app components`
+  stayed empty throughout, confirmed after every commit.
+- target: the architecture snapshot (`docs/ARCHITECTURE.md` — inputs → signals → decision → audit, and
+  what each stage refuses, every refusal checked against a real test before being written down), the
+  two-year thesis (`docs/THESIS.md` — a pre-written draft, verified against the code rather than accepted
+  on its word: its calibrated-confidence claim was checked directly against
+  `tests/failures/part1-deliberate-failure.test.ts` and holds — "no stake is high enough to stop a signal
+  that claims 0.99" is exactly what that test proves, not just what the thesis asserts), a full README
+  rewrite for a judge arriving cold (the previous README did not exist in this repository's git history at
+  all — see Anomalies in the M9 final report — so this is a first write, not a rewrite, despite the
+  milestone's own framing assuming one), `docs/NOTES.md` (AI tools, key decisions, deliberate scope, and
+  an honest count of the verification process's actual rejections — one formal reject, not the three this
+  milestone's own instructions assumed before the record was checked), `docs/WALKTHROUGH.md` (a 90-second
+  script built around the deployed page's real stakes-explorer widget), and the clean-clone verification
+  run for real against both `main` and this branch's tree.
+- fact-check finding worth flagging on its own: the D1/D7 contrast this milestone was told to lead the
+  README with — framed as "an 800-line change ships, a one-line change escalates" — does not match
+  `lib/domains/code-deploy/domain.ts`'s actual fixture data. Both D1 and D7 are 1 line / 1 file / 2
+  approvals; `deployAction(800, ...)` is D1's **dollar** cost-of-being-wrong ($800), not a line count. The
+  file's own header comment calls D1 "an 800-line-budget... feature-flag toggle" — "line-budget" reads
+  easily as "800 lines" on a skim, but the params two lines below it say `linesChanged: 1`. The README
+  states the corrected, and honestly sharper, version: same diff size, same evidence, wildly different
+  declared stakes ($800 vs. $250,000) — the point survives the correction undamaged, and is stronger for
+  not requiring two different-sized diffs to make it.
+- engine_gaps found: none requiring a change to the frozen engine or app — this milestone touches no code;
+  `lib/**`, `tests/**`, `app/**`, `components/**` are all genuinely untouched.
+- last_gate: (1) `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 58 test files,
+  541 tests, all passing, unchanged from the M8 baseline (a docs-only milestone changes no test count).
+  (3) `npm run build` — succeeds; route table unchanged. (4) `npm run demo:domains` — 23/23 cases pass,
+  exit 0. (5) Clean-clone verification run for real, twice: once against `main` (clones through the M8
+  merge; typecheck and 541/541 tests pass) and once against this branch's tree (fetched from the local
+  `m9-deliverables` branch into a second clean clone; same result) — `main` does not yet include this
+  branch's docs, which is expected and stated plainly rather than glossed over. (6) `git diff main --
+  lib tests app components` — 0 lines; freeze boundary held. (7) `git status --short` — clean after each
+  commit. (8) `git branch --show-current` — `m9-deliverables`. Never pushed; `main`,
+  `.genesis/DONE.html`, and `.genesis/PLAN.md` untouched throughout. (9) Every link in `README.md` and
+  `docs/*.md` checked by hand against the filesystem — all resolve.
+- last_action: five commits on `m9-deliverables`: (1) `docs/ARCHITECTURE.md`, (2) `docs/THESIS.md`
+  (the pre-written draft, unchanged in wording — verified, not edited, since its claims held), (3)
+  `README.md` (new — see the anomaly note above), (4) `docs/NOTES.md`, (5) `docs/WALKTHROUGH.md`, plus
+  this checkpoint update.
+- next_action: awaiting an independent L4 VERIFY on `m9-deliverables`. M9 is the last milestone on
+  `.genesis/PLAN.md`; per this project's own honesty requirement, M2 and M8 remain `todo` in
+  `.genesis/DONE.html` (both need an actual Vercel deployment, a human step that has not happened) and
+  nothing in this milestone's docs claims otherwise — `app/milestones.test.ts`'s drift guard continues to
+  enforce that agreement mechanically.
+- model: claude-sonnet-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: 150000 (M9's stated budget)
+- skills_loaded: []
+
+---
+
+## M8 follow-up fixes checkpoint (preserved as originally written)
+
 - active_loop: M8 follow-up fixes (four fixes from M8's independent verification, which APPROVED the
   milestone), branch `m8-demo-ui`, built on top of the already-approved M8 state. Not pushed; `main`
   untouched.
