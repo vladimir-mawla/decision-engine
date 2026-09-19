@@ -111,7 +111,19 @@ function parseSupplier(raw: unknown): Result<Supplier, AuditRecordValidationErro
   }
 }
 
-function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidationError> {
+/**
+ * Exported (FIX 4, independent verification follow-up) so `replay.ts` can
+ * validate `record.requirements` through the SAME strict parser
+ * `parseAuditRecord` already uses at the JSON boundary, rather than
+ * trusting a `DecisionAuditRecord`'s `requirements` field as already-safe
+ * — see `replay.ts`'s own `requirementsFromRecord` for why that trust was
+ * misplaced: a `DecisionAuditRecord` is only actually validated when it
+ * arrives via `parseAuditRecord`, and this project's own tests (matching
+ * `replay()`'s documented FAIL CLOSED discipline) routinely hand-build a
+ * hostile value asserted `as unknown as DecisionAuditRecord`, bypassing
+ * that boundary entirely.
+ */
+export function parseRequirement(raw: unknown): Result<Requirement, AuditRecordValidationError> {
   if (!isPlainObject(raw)) return { ok: false, error: { kind: "not-an-object", received: raw } };
 
   const signalKind = readField(raw, "signalKind");

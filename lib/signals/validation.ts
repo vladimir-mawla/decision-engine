@@ -198,7 +198,40 @@ export function parseSignal(raw: unknown, now: CapturedAt): Result<Signal, Signa
 export type ValueConstraintValidationError =
   | { readonly kind: "not-an-object"; readonly received: unknown }
   | { readonly kind: "unknown-op"; readonly received: unknown }
-  | { readonly kind: "invalid-field"; readonly field: string };
+  | { readonly kind: "invalid-field"; readonly field: string; readonly reason?: string };
+
+/**
+ * FIX 4 (independent verification follow-up): the upper bound on
+ * `in.values.length` this parser enforces. `evaluateConstraint`
+ * (constraint.ts) checks membership with `Array.prototype.includes` —
+ * O(n) in the allow-list's length, run once per candidate signal per
+ * requirement per `decide()`/`analyzeGaps()` call — and nothing before
+ * this fix capped `n`. That is fine for a domain-authored constraint (an
+ * author typing the list by hand naturally stays small: this project's
+ * OWN header comment in constraint.ts gives 2-value examples — a
+ * moderation category in `{"safe", "low-risk"}`, a deploy target in
+ * `{"staging", "canary"}` — and even `Reversibility` itself, this
+ * project's own largest hand-authored enum, has exactly 4 members), but
+ * `replay()` (lib/audit/replay.ts) reads `record.requirements` from a
+ * `DecisionAuditRecord` that can arrive from storage, another service, or
+ * an attacker — see that file's own note on why every read of `record`
+ * is defensive. A tampered record's `values` array had no ceiling at
+ * all before this fix: nothing stopped it from carrying thousands of
+ * entries, evaluated in full on every constraint check that requirement
+ * took part in.
+ *
+ * 64 is chosen as generous headroom over every legitimate use this
+ * project actually has (10-30x any real example above) while still
+ * bounding the per-check cost to a small, fixed constant regardless of
+ * where the constraint came from — a policy author who genuinely needs
+ * more than 64 discrete allowed values almost certainly has an open-
+ * ended category, which is exactly the kind of "the engine starts doing
+ * domain classification" case constraint.ts's own header comment already
+ * argues against accommodating (see its "Regex / substring / contains"
+ * rejection) — such a domain should emit a categorical signal computed by
+ * its own judgment, not lean on an ever-growing allow-list here.
+ */
+export const MAX_IN_VALUES = 64;
 
 function isConstraintPrimitiveField(value: unknown): value is string | number | boolean {
   if (typeof value === "string" || typeof value === "boolean") return true;
@@ -251,6 +284,17 @@ export function parseValueConstraint(raw: unknown): Result<ValueConstraint, Valu
       const valuesRaw = readField(raw, "values");
       if (!Array.isArray(valuesRaw) || valuesRaw.length === 0) {
         return { ok: false, error: { kind: "invalid-field", field: "values" } };
+      }
+      // FIX 4 — reject, never truncate: silently keeping the first
+      // MAX_IN_VALUES entries would accept a policy the author never
+      // actually wrote (a different, shorter allow-list), which is the
+      // same "rejects, never guesses" discipline this parser already
+      // applies to every other malformed shape.
+      if (valuesRaw.length > MAX_IN_VALUES) {
+        return {
+          ok: false,
+          error: { kind: "invalid-field", field: "values", reason: `must not exceed ${MAX_IN_VALUES} values` },
+        };
       }
       const values: (string | number | boolean)[] = [];
       for (const entry of valuesRaw) {

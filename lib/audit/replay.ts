@@ -1,8 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 import { decide, type DecideInput, type InputRejected, type Prohibition } from "../decide/index.js";
+import type { Requirement } from "../signals/requirement.js";
 import type { Signal } from "../signals/signal.js";
 import { fromSignalSnapshot, type SignalSnapshot } from "./snapshot.js";
 import { snapshotDecision, type DecisionAuditRecord, type RecordedDecision } from "./record.js";
+import { parseRequirement } from "./validation.js";
 
 /**
  * `replay(record, prohibitions)` — the signature states, explicitly, the
@@ -168,6 +170,54 @@ function signalsFromEvidence(evidence: unknown, knownSignals: readonly Signal[])
   return signals;
 }
 
+/**
+ * FIX 4 (independent verification follow-up): `record.requirements` is
+ * NOT re-validated before this fix — `Array.isArray(requirementsRaw) ?
+ * requirementsRaw : []` accepted whatever shape the array's entries
+ * happened to have, unlike `signalsFromEvidence` above, which reconstructs
+ * every evidence entry through `fromSignalSnapshot` rather than trusting
+ * the snapshot's own fields directly. A `DecisionAuditRecord` is only
+ * actually validated when it arrives through `parseAuditRecord`
+ * (validation.ts) — a caller that hand-builds one (or receives one from
+ * storage, another service, or an attacker, then casts past the type
+ * system) bypasses that boundary entirely, and `replay()`'s own header
+ * comment already documents that this project's tests do exactly that.
+ * Concretely, an unvalidated `Requirement.valueConstraint` with an `op:
+ * "in"` could carry an unbounded `values` array — `checkValueConstraint`
+ * (constraint.ts) evaluates it in full, once per candidate signal, on
+ * every replay.
+ *
+ * This function closes that gap by running each requirement through
+ * `parseRequirement` — the SAME strict parser `parseAuditRecord` already
+ * uses at the JSON boundary, now also capping `in.values` at
+ * `MAX_IN_VALUES` (signals/validation.ts) — so a `DecisionAuditRecord`
+ * that skipped that boundary gets validated here instead. Fails closed
+ * PER REQUIREMENT, mirroring `signalsFromEvidence`'s own per-snapshot
+ * discipline: a single malformed/hostile/oversized requirement is
+ * dropped, not fabricated or truncated into something the record never
+ * actually said. Dropping a requirement can only make the replayed
+ * decision diverge further from the recorded one (never converge on a
+ * false match) — `isDeepStrictEqual` below still does the real work of
+ * detecting that divergence via `matches`, exactly as it already does
+ * for a dropped/malformed evidence snapshot.
+ */
+function requirementsFromRecord(requirementsRaw: unknown): readonly Requirement[] {
+  if (!Array.isArray(requirementsRaw)) return [];
+  const requirements: Requirement[] = [];
+  for (const entry of requirementsRaw) {
+    try {
+      const parsed = parseRequirement(entry);
+      if (parsed.ok) requirements.push(parsed.value);
+      // else dropped — see doc comment above.
+    } catch {
+      // Dropped — a throwing getter/Proxy trap on `entry` itself, not
+      // something `parseRequirement`'s own readField/readProperty
+      // discipline already caught.
+    }
+  }
+  return requirements;
+}
+
 const UNREADABLE_RECORD_REPLAYED: InputRejected = {
   outcome: "input-rejected",
   reason: "replay() could not read this record well enough to reconstruct an input to decide()",
@@ -203,7 +253,7 @@ export function replay(
   try {
     const action = record.action;
     const requirementsRaw = record.requirements;
-    const requirements = Array.isArray(requirementsRaw) ? requirementsRaw : [];
+    const requirements = requirementsFromRecord(requirementsRaw);
     const now = record.now;
     const signals = signalsFromEvidence(recordedDecision.evidence, knownSignals);
 

@@ -45,6 +45,7 @@ export {
   parseSignal,
   parseProvenance,
   parseValueConstraint,
+  MAX_IN_VALUES,
   type SignalValidationError,
   type ProvenanceValidationError,
   type ValueConstraintValidationError,

@@ -199,4 +199,68 @@ describe("fail-closed — replay() never throws, for any hostile DecisionAuditRe
     }).not.toThrow();
     expect(result).toBeDefined();
   });
+
+  /**
+   * FIX 4 (independent verification follow-up): before this fix,
+   * `replay()` read `record.requirements` directly
+   * (`Array.isArray(requirementsRaw) ? requirementsRaw : []`) with no
+   * validation at all — a `DecisionAuditRecord` that skipped
+   * `parseAuditRecord` (exactly what every test in this file hand-builds
+   * via `as unknown as DecisionAuditRecord`) could carry a requirement
+   * whose `valueConstraint.values` (an `"in"` allow-list) was arbitrarily
+   * large, evaluated in full by `checkValueConstraint` on every candidate
+   * signal. `requirementsFromRecord` (replay.ts) now runs every
+   * requirement through `parseRequirement` — the same strict parser
+   * `parseAuditRecord` uses — dropping (never truncating) one that fails,
+   * including one whose `in.values` exceeds `MAX_IN_VALUES`
+   * (signals/validation.ts).
+   */
+  it("an oversized 'in.values' allow-list smuggled onto an extra requirement is dropped, not evaluated — replay reproduces the ORIGINAL untampered decision exactly", () => {
+    const good = baseRecord();
+    const oversizedRequirement = {
+      signalKind: "hostile.oversized",
+      description: "a requirement carrying a hostile, oversized allow-list",
+      minConfidence: 0.1,
+      maxAge: 999_999_999,
+      supplier: { kind: "human", reason: "should never be reached — this requirement must be dropped before dispatch" },
+      valueConstraint: { op: "in", values: Array.from({ length: 100_000 }, (_, i) => `v${i}`) },
+    };
+    const record = {
+      ...good,
+      requirements: [...good.requirements, oversizedRequirement],
+    } as unknown as DecisionAuditRecord;
+
+    let result;
+    expect(() => {
+      result = replay(record, []);
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    // If the oversized requirement had been accepted rather than dropped,
+    // it would contribute an `absent` Gap with a `human` supplier (no
+    // matching signal exists for `hostile.oversized`) — which, per
+    // `gapPrecedenceRank`, outranks any real requirement's own gap and
+    // would force `escalate` regardless of what the original decision
+    // actually was. Instead, the tampered requirement is dropped before
+    // `decide()` ever sees it, so replay reproduces the ORIGINAL,
+    // untampered single-requirement decision exactly.
+    expect(result!.matches).toBe(true);
+    expect(result!.replayed.outcome).toBe(good.decision.outcome);
+  });
+
+  it("a malformed requirement (missing signalKind) smuggled onto the requirements array is dropped rather than fabricated or thrown on", () => {
+    const good = baseRecord();
+    const malformedRequirement = { description: "missing its signalKind entirely" };
+    const record = {
+      ...good,
+      requirements: [...good.requirements, malformedRequirement],
+    } as unknown as DecisionAuditRecord;
+
+    let result;
+    expect(() => {
+      result = replay(record, []);
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    expect(result!.matches).toBe(true);
+    expect(result!.replayed.outcome).toBe(good.decision.outcome);
+  });
 });
