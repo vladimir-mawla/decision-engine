@@ -136,9 +136,11 @@ getting rejected for showed up once more in the paragraph written to document it
   orchestrator identity anywhere.
 
 Three of these five causes (2a, 3, and 4) originated in instructions or characterizations the orchestrator
-gave the fixing agent while directing the repair, not in anything the fixing agent constructed on its own;
-the other two (1 and 2b) were the fixing agent's own — the original trailer misreading, and a real,
-disclosed ADR limit restated more strongly than either the ADR or the code actually supported.
+gave the fixing agent while directing the repair, not in anything the fixing agent constructed on its own.
+Cause 2b was the fixing agent's own — a real, disclosed ADR limit restated more strongly than either the
+ADR or the code actually supported. Cause 1 belongs to neither: the trailer misreading was written into
+M9's original build commit, before any of the repair rounds above, so the fixing agent inherited it rather
+than constructed it.
 
 This is not the process working as intended. It is a documentation milestone — about not making claims the
 repository can't support — that took five rounds to stop making claims the repository couldn't support,
