@@ -156,6 +156,14 @@ and drifting three ways.
 - **Success criteria:** given a sample action, the deployed URL renders the outcome, confidence, risk score,
   the evidence list, the named missing information, and the audit record — a stranger with no context can
   read what happened and why without asking. **Needs a Vercel account** (reuses M2's deployment).
+- **Escalate legibility (carried forward from M6's independent verification):** `escalate` has four
+  mechanically distinct causes at the `RuleTrace` layer — `human`, `value-rejected`, `cost-ceiling`
+  (`cleared:false, saturated:true`), and `insufficient-now` (`cleared:false, saturated:false`) — and a bare
+  "Escalated" label would defeat the 90-second legibility bar above; these are four different stories (a
+  human must sign off regardless of evidence; the evidence itself said no; more cost cannot raise the bar
+  further, only better evidence helps; just needs more or better evidence). The demo UI must render at
+  least four visually and textually distinct escalate explanations, branching on `RuleTrace.kind` plus its
+  `cleared`/`saturated` fields — and must never infer the cause from `missing.reason` prose.
 - **Loops:** L1, L4
 - **Token budget:** 150000
 
