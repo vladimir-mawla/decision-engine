@@ -18,12 +18,16 @@ times too — both M7 rounds, both value-constraints fix rounds, and the fix rou
 reject. One entry, M8's base milestone, is annotated in the checkpoint itself as "(per this milestone's
 commit-attribution instruction)" — a sign that even `model:` can sometimes record a convention rather than
 the engine that actually ran, so treat this as the best record available, not as independently proven; no
-artifact in this repository proves which engine executed a given loop. What did hold, checkably, on every
-single milestone is narrower than "Sonnet built everything" and is the claim actually worth making:
-**maker ≠ checker at the agent level** — whichever agent built a milestone never verified it, per the
-project's own standing rule ("a separate agent/model," per `.genesis/DONE.html`'s own Definition-of-Done
-gate). An Opus orchestrator wrote each milestone's brief, reviewed the resulting work, and made the merge
-decisions throughout. A VERIFY pass's findings are folded back into the checkpoint and the ADRs by the
+artifact in this repository proves which engine executed a given loop. The project's own
+Definition-of-Done gate requires **maker ≠ checker at the agent level** — whichever agent built a
+milestone must not be the one that independently verifies it ("a separate agent/model," per
+`.genesis/DONE.html`'s own gate) — but unlike the BUILD-side breakdown just given, this is not something
+`CURRENT.md` lets a reader check: none of its roughly 28 mentions of an independent L4 VERIFY pass carries
+a `model:` field or names an agent; only BUILD/fix loops record that field at all. So this is the process's
+own account of its own separation, not a claim the repository's own record can confirm or refute — stated
+here as exactly that, rather than as something "checkable." An Opus orchestrator wrote each milestone's
+brief, reviewed the resulting work, and made the merge decisions throughout. A VERIFY pass's findings are
+folded back into the checkpoint and the ADRs by the
 next BUILD pass that addresses them, rather than committed under separate authorship — so which agent
 verified a given milestone isn't visible in `git log` either, only its findings are, in the ADRs and in
 `CURRENT.md`'s history.
