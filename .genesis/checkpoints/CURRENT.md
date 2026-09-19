@@ -1,4 +1,79 @@
 # CURRENT
+- active_loop: L1 BUILD — M8 (the demo UI), branch `m8-demo-ui`, built from `main`. Not pushed;
+  `main` untouched. Awaiting L4 VERIFY.
+- target: M8 — make a decision legible in 90 seconds, carrying forward BOTH requirements M6's and
+  M7's independent verifications added to this row: (a) at least four visually/textually distinct
+  `escalate` renderings, branched on `RuleTrace.kind`/`cleared`/`saturated`, never on `missing.reason`
+  prose; (b) any `Requirement` built from request data must go through `parseValueConstraint`.
+- architecture decision (verified, not assumed): grepped `lib/` for `from "node:` outside `__tests__/`
+  and found exactly one hit — `lib/audit/replay.ts`'s `isDeepStrictEqual` from `node:util`. Every other
+  file `decide()` touches (`lib/contracts`, `lib/cost-model`, `lib/signals`, `lib/decide`, `lib/domains`,
+  and `lib/audit/record.ts`/`rule.ts`/`snapshot.ts`) is genuinely isomorphic. Chose to run `decide()` AND
+  `recordDecision()` (the full audit record — rule trace, requirements, evidence snapshots) CLIENT-SIDE,
+  in `components/StakesExplorer.tsx` (a "use client" component importing `lib/audit/record.js` directly,
+  never `lib/audit/index.js`/`replay.js`, so `node:util` never reaches the client bundle — confirmed by
+  grepping the built `.next/static/chunks/` for `node:util` after `npm run build`: zero matches). A
+  viewer drags a cost slider and watches the SAME evidence (deploy-d7's real requirements/signals) flip
+  between `execute` and `escalate` instantly, no network round-trip. Only `replay()` — which needs
+  `node:util` to actually PROVE a record reproduces via `decide()`, not just assert it — runs server-side,
+  in the plain Server Components `components/EscalateGallery.tsx`/`components/OutcomeStrip.tsx` and
+  `app/page.tsx`. Reimplementing `isDeepStrictEqual` client-side to avoid that one server check was
+  considered and rejected: it would duplicate frozen, already-audited logic outside `lib/` for a cosmetic
+  win.
+- page structure: (1) a `StakesExplorer` widget, server-rendered at deploy-d7's real stakes ($250,000,
+  irreversible → escalate/insufficient-now) so a decision is visible on load with no JS, then
+  interactive — two presets (deploy-d1/deploy-d7) plus a continuous cost slider and a 4-way reversibility
+  control, requirements/signals held constant, only the action's stakes moving; (2) a 4-card gallery, one
+  real domain case per escalate cause (deploy-d5=human, refund-r4=value-rejected, deploy-d8=cost-ceiling,
+  moderation-m7=insufficient-now), each with a server-verified replay badge; (3) a 4-card strip, one real
+  case per non-escalate outcome (moderation-m1=execute, refund-r2=ask, deploy-d3=defer,
+  moderation-m6=refuse). Every number renders from a real `DecisionAuditRecord`; no fixture, cost, or
+  confidence is hand-typed into the page.
+- requirement-construction mandate (FIX 3, M7's row): satisfied by NEVER constructing a `Requirement`
+  from request data at all, stated explicitly in `StakesExplorer.tsx`'s header comment. The widget's only
+  two viewer-controlled inputs (cost, reversibility) become `Action` fields, each validated by its own
+  real parser (`parseCostOfBeingWrong`; reversibility is restricted to `REVERSIBILITY_LEVELS` by the
+  control itself) — `requirements` is always `baseCase.requirements`, copied verbatim from the frozen
+  `lib/domains/code-deploy` fixture. `parseValueConstraint` has nothing to validate on this path because
+  no `Requirement` is ever hand-built here.
+- engine_gaps found: none requiring a change to the frozen engine (`lib/**`/`tests/**` genuinely
+  untouched — `git diff main -- lib tests` stayed empty throughout).
+- last_gate: (1) `npm run typecheck` — clean, zero errors, both configs. (2) `npm test` — 58 test files,
+  541 tests, all passing, unchanged from the M7 follow-up baseline (M8 is `app/`/`components/` only; no
+  `lib/`/`tests/` change means no test count change). (3) `npm run build` — succeeds; route table
+  unchanged (`/`, `/_not-found`, `/api/health`); `/` prerenders as static content. (4) `npm run dev` +
+  `curl -s localhost:3000/api/health` — 200, `costModel.pass: true`. `curl -s localhost:3000/` piped
+  through grep for outcome words — all five present at rest (12 execute/18 ask/13 defer/35 escalate/14
+  refuse token occurrences across labels+prose), and all four escalate labels ("Escalate — human
+  sign-off", "Escalate — evidence says no", "Escalate — stakes at ceiling", "Escalate — needs better
+  evidence") present verbatim. (5) Verified interactively in a real browser (both dark and light
+  `prefers-color-scheme`, and at a 400px viewport with zero horizontal scroll): clicking the deploy-d1
+  preset flips the visible outcome from "Escalate — needs better evidence" to "Execute" instantly, with
+  zero console errors (no hydration mismatch between the server-rendered default state and the client
+  component). (6) `npm run demo:domains` — 23/23 cases pass, exit 0, unchanged. (7) `git diff main --
+  lib tests` — 0 lines; freeze boundary held. (8) `grep -rn 'missing\.reason' app/ components/` — no
+  matches (two explanatory comments that named the pattern in prose were reworded to avoid the literal
+  substring, same discipline M6's/M7's own checkpoints already used for `lib/domains/`/`scripts/`). (9)
+  `git status --short` — clean after each commit, no hang. (10) `git branch --show-current` —
+  `m8-demo-ui`.
+- last_action: four commits on `m8-demo-ui`: (1) design tokens (`app/globals.css`) and the shared,
+  framework-free rendering layer (`components/decision-helpers.ts`, `icons.tsx`, `OutcomeBadge.tsx`,
+  `ConfidenceMeter.tsx`, `EvidenceList.tsx`, `MissingInfoPanel.tsx`, `AuditTrail.tsx`, `DecisionCard.tsx`),
+  (2) the client-side interactive stakes explorer (`components/StakesExplorer.tsx`), (3) the two
+  server-rendered, replay-verified galleries (`components/EscalateGallery.tsx`, `OutcomeStrip.tsx`), (4)
+  the rebuilt page and layout (`app/page.tsx`, `app/layout.tsx`).
+- next_action: awaiting an independent L4 VERIFY on `m8-demo-ui`. If approved: M9 (deliverables —
+  architecture snapshot, two-year thesis, `.env.example`, clean-clone verification) is the last milestone
+  on `.genesis/PLAN.md`.
+- model: claude-opus-5 (per this milestone's commit-attribution instruction)
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: 150000 (M8's stated budget)
+- skills_loaded: []
+
+---
+
+## M7 follow-up fixes checkpoint (preserved as originally written)
+
 - active_loop: M7 follow-up fixes (four fixes from M7's independent verification, which APPROVED the
   milestone outright), branch `m7-failures`, built on top of the already-approved M7 state. Not pushed;
   `main` untouched.
