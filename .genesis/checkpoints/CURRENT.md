@@ -1,4 +1,77 @@
 # CURRENT
+- active_loop: L1 BUILD — M5 (`lib/audit/`), branch `m5-audit`, built from `main`. Not pushed;
+  `main` untouched.
+- target: M5 — The audit trail (a full audit record per decision — inputs, signals, reasoning,
+  outcome — replayable: `decide()` fed the recorded inputs back reproduces the recorded outcome)
+- iteration: 1 (this loop, M5). last_gate / last_action below describe THIS iteration. The M4
+  history that follows under "M4 history (preserved as originally written)" is kept verbatim from
+  the previous milestone rather than edited.
+- last_gate: All required gates run for real on branch `m5-audit`.
+  (1) `npm run typecheck` — clean, zero errors, both configs (`tsc -p tsconfig.lib.json` and
+  `tsc -p tsconfig.json`). (2) `npm test` — 36 test files, 325 tests, all passing (was 262 at the
+  start of this milestone; 63 net new, all under `lib/audit/__tests__/`, 0 removed or weakened).
+  (3) `npm test -- audit` — selects 9 files / 63 tests, all under `lib/audit/`, genuinely narrows
+  and passes. (4) `npm run build` — succeeds; route table unchanged (`/`, `/_not-found`,
+  `/api/health`). (5) `git diff main -- lib/contracts lib/cost-model lib/signals lib/decide app`
+  — 0 lines; freeze boundary held (M5 additionally froze `lib/decide/**` on top of M4's freeze
+  set, and this held too). (6) `git status --short` — clean after commit, no hang. (7)
+  `git branch --show-current` — `m5-audit`. Never pushed; `main` and
+  `.genesis/DONE.html`/`.genesis/PLAN.md` untouched.
+- last_action: Built `lib/audit/` — `snapshot.ts` (Signal metadata snapshot/reconstruction,
+  `UNDISCLOSED_VALUE` sentinel), `disclose.ts` (the one named, intentional value-disclosure
+  function), `rule.ts` (`deriveRule` — independently re-derives which of decide.ts's own branches
+  fired, using only lib/decide's public exports, never editing frozen code), `record.ts`
+  (`recordDecision` — always calls `decide(input)` itself, never accepts a pre-computed decision;
+  `RecordedDecision`/`DecisionAuditRecord`/`RejectedAuditRecord`), `replay.ts` (`replay(record,
+  prohibitions)` — the prohibition set is the one explicit thing beyond the record it needs;
+  computes `ruleSetMatches` unconditionally, fails closed on a hostile/tampered record),
+  `validation.ts` (`parseAuditRecord` — hostile-input-safe boundary parser, same discipline as
+  lib/contracts/lib/signals's own validators). Key design resolutions (full reasoning in
+  `.genesis/decisions/0003-audit-model.md`):
+  — VALUE_DISCLOSURE: sharpened the brief's own "record what was read" lean by checking what
+  `decide()` actually reads off a `Signal` — never `.read()`/`.value`, only `kind`/`capturedAt`/
+  `confidence` — so metadata-only recording is not a compromise, it is literally what was read;
+  the value stays undisclosed by default and disclosure is one separate, named function.
+  — REPLAY_SHAPE: `replay(record, prohibitions)`; metadata-only reconstructed signals are proven
+  behaviorally identical to the originals for `decide()`'s purposes, which is what makes
+  `no-unreplayable-decision` structural (recordDecision always self-computes its own `decision`
+  field) rather than merely tested.
+  — PROHIBITIONS: recorded by id, in order; replay requires the caller's own real predicates and
+  reports `ruleSetMatches` unconditionally, so a different rule set is detectable even when it
+  coincidentally doesn't change the outcome.
+  — INPUT_REJECTED: its own `RejectedAuditRecord`, `replayable: false`, and `replay()`'s parameter
+  type refuses a `RejectedAuditRecord` at compile time.
+  — SENSITIVE_DATA: never recorded by default (a structural consequence of VALUE_DISCLOSURE, not
+  best-effort redaction); the stated limit is that the record alone can't prove what a disclosed
+  value actually was without a separate, deliberate `discloseSignalValue` call.
+  Proved `no-unreplayable-decision` as a property across 400 seeded, PRNG-generated cases
+  (`__tests__/replay-property.test.ts`), covering all five outcomes, not a handful of hand-picked
+  examples. Found and fixed one real fail-closed gap during self-verification: `replay()`'s first
+  draft read `record.prohibitionIds`/`record.action`/`record.requirements`/`record.now` without
+  defending against a hostile/tampered `record` (a Proxy that throws on every access threw
+  straight out of `replay()`, and calling `replay()` on a `RejectedAuditRecord` via
+  `@ts-expect-error` threw at runtime for the same reason) — fixed by wrapping every field read
+  defensively, mirroring `decide()`'s own "read once, never re-read something that could throw"
+  discipline, with a `recorded: RecordedDecision | null` result field so an unreadable record's
+  own decision is reported as `null` rather than fabricated.
+  `lib/contracts/**`, `lib/cost-model/**`, `lib/signals/**`, `lib/decide/**`, `app/**` untouched
+  throughout (`git diff main` on all five stayed empty). Wrote `.genesis/decisions/0003-audit-
+  model.md`.
+- next_action: This iteration has not yet had an independent L4 VERIFY. Per standing guidance,
+  marking a milestone done is standing-OK only after an independent APPROVE — that gate has not
+  been cleared yet for M5. If approved, M6 (three domains with realistic data, `domains/**`) is
+  next; it will be the first milestone to actually call `recordDecision`/`replay` against
+  non-synthetic signals, which is where `discloseSignalValue`'s opt-in-only design will get its
+  first real test (refund/deploy/moderation signals may carry real-shaped customer data).
+- model: claude-sonnet-5
+- tokens_used: ~unspecified (not tracked by this harness)
+- tokens_budget: 150000
+- skills_loaded: [genesis]
+
+---
+
+## M4 history (preserved as originally written)
+
 - active_loop: L1 BUILD — M4 (`lib/decide/`), branch `m4-decide`, built from `main`. Not pushed;
   `main` untouched.
 - target: M4 — The decision engine (`decide(action, signals)` -> exactly one of the five outcomes)
