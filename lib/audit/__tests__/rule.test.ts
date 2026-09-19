@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decide } from "../../decide/index.js";
+import { aggregateConfidence, decide, isBarSaturated } from "../../decide/index.js";
+import { requiredConfidence } from "../../cost-model/requiredConfidence.js";
 import { deriveRule } from "../rule.js";
 import { fixtureInput, fixtureRequirement, fixtureSignal, generateInput, mulberry32, sampleAction } from "./fixtures.js";
 
@@ -92,10 +93,10 @@ describe("deriveRule — names the exact rule, agreeing with decide()'s own bran
   });
 
   it("execute: confidence-bar rule names the limiting signal and reports cleared=true", () => {
-    const input = fixtureInput({
-      requirements: [fixtureRequirement({ minConfidence: 0.1 })],
-      signals: [fixtureSignal({ id: "strong-1", confidence: 0.95 })],
-    });
+    const action = sampleAction();
+    const requirements = [fixtureRequirement({ minConfidence: 0.1 })];
+    const signals = [fixtureSignal({ id: "strong-1", confidence: 0.95 })];
+    const input = fixtureInput({ action, requirements, signals });
     const decision = decide(input);
     const rule = deriveRule(input);
 
@@ -104,21 +105,48 @@ describe("deriveRule — names the exact rule, agreeing with decide()'s own bran
     if (rule.kind === "confidence-bar") {
       expect(rule.cleared).toBe(true);
       expect(rule.limitingSignalId).toBe("strong-1");
+
+      // SWEEP FINDING (see this milestone's audit fix report):
+      // `saturated`/`bar`/`aggregate` were never asserted anywhere in
+      // this file — a mutation hardcoding `saturated: false, bar: 0,
+      // aggregate: 0` in rule.ts's confidence-bar branch survived all 63
+      // audit tests before these three lines existed. Computed here via
+      // the SAME public, pure building blocks `deriveRule` itself calls
+      // (never reimplemented — same discipline as this describe block's
+      // own header comment), so this checks deriveRule's WIRING to those
+      // functions, not a reimplementation of their math.
+      const expectedAggregate = aggregateConfidence(requirements, signals, input.now);
+      expect(expectedAggregate).not.toBeNull();
+      if (expectedAggregate !== null) {
+        expect(rule.aggregate).toBe(expectedAggregate.confidence);
+      }
+      expect(rule.bar).toBeCloseTo(requiredConfidence(action.reversibility, action.costOfBeingWrong), 10);
+      expect(rule.saturated).toBe(isBarSaturated(action));
     }
   });
 
   it("escalate: confidence-bar rule reports cleared=false when the aggregate doesn't clear requiredConfidence", () => {
-    const input = fixtureInput({
-      requirements: [fixtureRequirement({ minConfidence: 0.1 })],
-      signals: [fixtureSignal({ id: "weak-2", confidence: 0.5 })],
-      action: sampleActionForBar(),
-    });
+    const action = sampleActionForBar();
+    const requirements = [fixtureRequirement({ minConfidence: 0.1 })];
+    const signals = [fixtureSignal({ id: "weak-2", confidence: 0.5 })];
+    const input = fixtureInput({ requirements, signals, action });
     const decision = decide(input);
     const rule = deriveRule(input);
     expect(decision.outcome).toBe("escalate");
     expect(rule.kind).toBe("confidence-bar");
     if (rule.kind === "confidence-bar") {
       expect(rule.cleared).toBe(false);
+
+      // Same sweep-finding fields as the previous test, checked here too
+      // — a hardcoded `saturated`/`bar`/`aggregate` would otherwise be
+      // just as undetectable on the escalate branch as on the execute one.
+      const expectedAggregate = aggregateConfidence(requirements, signals, input.now);
+      expect(expectedAggregate).not.toBeNull();
+      if (expectedAggregate !== null) {
+        expect(rule.aggregate).toBe(expectedAggregate.confidence);
+      }
+      expect(rule.bar).toBeCloseTo(requiredConfidence(action.reversibility, action.costOfBeingWrong), 10);
+      expect(rule.saturated).toBe(isBarSaturated(action));
     }
   });
 
