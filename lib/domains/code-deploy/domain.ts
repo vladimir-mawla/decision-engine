@@ -23,42 +23,19 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  * action itself looked expensive." D1 is a reversible-no-trace feature-flag
  * toggle to an internal admin tool, carrying $800 of `costOfBeingWrong` —
  * genuinely low-stakes, executes easily. D7 is a config flip that disables a
- * fraud check on the checkout path. The two are IDENTICAL on every
- * face-value measure: one line changed, one file touched, two review
- * approvals, the same passing CI, and the same `no-findings` static analysis
- * at the same 0.90 confidence, each.
+ * fraud check on the checkout path. Where a reviewer would naturally look,
+ * the two match: one line changed, one file touched, two review approvals,
+ * passing CI, and `no-findings` static analysis at 0.90 confidence, each.
  *
- * They are NOT identical in everything — stating the differences is more
- * useful than a sweeping claim. They differ in identity metadata (repo, PR
- * number, service name), in evidence freshness (D7's signals are the fresher
- * of the two throughout), and in the recorded confidence of the approvals
- * and CI signals themselves (0.95 for D1's, 0.90 for D7's). None of those is
- * a measure of how big the change is, and none of them is what flips the
- * outcome.
+ * What separates them is D7's `costOfBeingWrong` ($250,000, an estimate of
+ * fraud exposure during the window before anyone notices) and its
+ * `irreversible` reversibility — exactly the two fields of an `Action` that
+ * `decide()` reads. Neither has anything to do with the diff's size; both
+ * come from what the flag CONTROLS. `lib/domains/__tests__/coverage.test.ts`
+ * pins this independently, reading D7's `linesChanged` and asserting it is
+ * 1, so the "tiny diff, huge cost" case cannot quietly stop being tiny.
  *
- * The decisive fact is structural rather than rhetorical: `decide()`'s own
- * logic reads exactly two fields of an `Action` — `costOfBeingWrong` and
- * `reversibility` — and neither it nor `lib/audit` ever reads
- * `action.parameters`. Verify with
- * `grep -rn 'action\.parameters' lib/decide lib/audit --include='*.ts' | grep -v __tests__`
- * — no matches. (The unfiltered pattern finds two test-fixture
- * pass-throughs, which is why the filter is there.)
- *
- * One precise caveat, because "the engine never sees parameters" would be
- * too strong: `findProhibition` invokes each domain-supplied
- * `Prohibition.matches(action)` predicate, and D6's force-push rule below
- * reads `parameters.method` and `parameters.branchProtected` — so those two
- * fields ARE read while deciding every case, including D1 and D7. What no
- * code anywhere in this project reads is `linesChanged`, `filesChanged`,
- * `repo` or `service`: they exist only as narrative for a human reading the
- * case. So the size fields are unreachable; the parameters object is not. A
- * path-based CI rule flagging `core/payments-service` would not contradict
- * this; it would be reasoning from what the change touches, which is the
- * axis `lib/cost-model/cost.ts` argues for, not the size axis it calls the
- * likeliest modelling mistake in the milestone. What separates them is D7's
- * `costOfBeingWrong` ($250,000, an estimate of fraud exposure during the
- * window before anyone notices), which has nothing to do with the diff's size; it
- * comes from what the flag CONTROLS. D1 clears its bar on 95%-confidence
+ * D1 clears its bar on 95%-confidence
  * review-approval and CI evidence, the only two requirements it declares
  * (a 90%-confidence static-analysis signal is also captured for D1, but no
  * requirement of D1's reads it — present, honest evidence, not a driver of
