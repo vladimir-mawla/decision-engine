@@ -29,6 +29,14 @@ export { type Requirement, type Supplier } from "./requirement.js";
 export { analyzeGaps, type Gap } from "./gap.js";
 
 export {
+  evaluateConstraint,
+  checkValueConstraint,
+  type ValueConstraint,
+  type ConstraintCheck,
+  type ConstraintFailure,
+} from "./constraint.js";
+
+export {
   checkHumanSupplierAgainstSatisfyingSignal,
   type SupplierPlausibilityHazard,
 } from "./supplier-plausibility.js";
@@ -36,6 +44,8 @@ export {
 export {
   parseSignal,
   parseProvenance,
+  parseValueConstraint,
   type SignalValidationError,
   type ProvenanceValidationError,
+  type ValueConstraintValidationError,
 } from "./validation.js";

@@ -6,6 +6,7 @@ import {
 } from "./time.js";
 import { PROVENANCE_KINDS, type InvalidProvenance, type Provenance } from "./provenance.js";
 import { createSignal, type Signal } from "./signal.js";
+import type { ValueConstraint } from "./constraint.js";
 
 export type Result<T, E> =
   | { readonly ok: true; readonly value: T }
@@ -192,4 +193,75 @@ export function parseSignal(raw: unknown, now: CapturedAt): Result<Signal, Signa
       confidence: confidence.value,
     }),
   };
+}
+
+export type ValueConstraintValidationError =
+  | { readonly kind: "not-an-object"; readonly received: unknown }
+  | { readonly kind: "unknown-op"; readonly received: unknown }
+  | { readonly kind: "invalid-field"; readonly field: string };
+
+function isConstraintPrimitiveField(value: unknown): value is string | number | boolean {
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Strict boundary parser for `ValueConstraint` (constraint.ts) — same
+ * discipline as every other parser in this file: rejects, never guesses,
+ * and every field read goes through `readField`/`readProperty` so a
+ * throwing getter or Proxy `get` trap folds into "absent field" rather
+ * than escaping as an exception. An unrecognized `op` is
+ * `unknown-op`, never silently coerced into one of the four known shapes.
+ *
+ * This is the ONE parser for `ValueConstraint` in this project —
+ * `lib/audit/validation.ts`'s `parseRequirement` (its own Requirement
+ * boundary parser, needed because a `DecisionAuditRecord` round-trips a
+ * full `Requirement` including its optional `valueConstraint`) imports
+ * and reuses this directly rather than reproducing it: unlike the
+ * low-level `readField`/`readProperty` helpers (never exported, and
+ * genuinely duplicated everywhere for the same reason lib/contracts's own
+ * `validation.ts` states), a domain-shaped parser like this one is exactly
+ * the kind of logic this project prefers to import once `lib/signals` is
+ * no longer frozen relative to the caller — see `parseProvenance`, which
+ * `lib/audit/validation.ts` already imports the same way.
+ */
+export function parseValueConstraint(raw: unknown): Result<ValueConstraint, ValueConstraintValidationError> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: { kind: "not-an-object", received: raw } };
+  }
+
+  const op = readField(raw, "op");
+  switch (op) {
+    case "equals": {
+      const value = readField(raw, "value");
+      if (!isConstraintPrimitiveField(value)) {
+        return { ok: false, error: { kind: "invalid-field", field: "value" } };
+      }
+      return { ok: true, value: { op: "equals", value } };
+    }
+    case "lte":
+    case "gte": {
+      const value = readField(raw, "value");
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return { ok: false, error: { kind: "invalid-field", field: "value" } };
+      }
+      return { ok: true, value: { op, value } };
+    }
+    case "in": {
+      const valuesRaw = readField(raw, "values");
+      if (!Array.isArray(valuesRaw) || valuesRaw.length === 0) {
+        return { ok: false, error: { kind: "invalid-field", field: "values" } };
+      }
+      const values: (string | number | boolean)[] = [];
+      for (const entry of valuesRaw) {
+        if (!isConstraintPrimitiveField(entry)) {
+          return { ok: false, error: { kind: "invalid-field", field: "values" } };
+        }
+        values.push(entry);
+      }
+      return { ok: true, value: { op: "in", values } };
+    }
+    default:
+      return { ok: false, error: { kind: "unknown-op", received: op } };
+  }
 }
