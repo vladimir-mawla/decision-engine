@@ -25,13 +25,27 @@ import { before, DEMO_NOW, HOURS, mustCapturedAt, mustConfidence, mustCost, must
  * genuinely low-stakes, executes easily. D7 is a config flip that disables a
  * fraud check on the checkout path. The two are IDENTICAL on every
  * face-value measure: one line changed, one file touched, two review
- * approvals, and the same 0.90 static-analysis confidence, each. Nothing
- * about the SIZE or the REVIEW STATUS of the change separates them. (The two
- * do differ in identity metadata — repo, PR number, service name — and a
- * path-based rule could of course flag `core/payments-service`. That is not
- * a counterexample: it is reasoning from what the change touches, which is
- * this comment's whole point, rather than from how big it is.) What
- * separates them is D7's
+ * approvals, the same passing CI, and the same `no-findings` static analysis
+ * at the same 0.90 confidence, each.
+ *
+ * They are NOT identical in everything — stating the differences is more
+ * useful than a sweeping claim. They differ in identity metadata (repo, PR
+ * number, service name), in evidence freshness (D7's signals are the fresher
+ * of the two throughout), and in the recorded confidence of the approvals
+ * and CI signals themselves (0.95 for D1's, 0.90 for D7's). None of those is
+ * a measure of how big the change is, and none of them is what flips the
+ * outcome.
+ *
+ * The decisive fact is structural rather than rhetorical: `decide()` reads
+ * exactly two fields of an `Action` — `costOfBeingWrong` and
+ * `reversibility`. It never reads `action.parameters` at all, so
+ * `linesChanged`, `filesChanged`, repo and service are not merely deemed
+ * irrelevant, they are unreachable from the engine. Verify with
+ * `grep -rn '\.parameters' lib/decide lib/audit` — no matches. A
+ * path-based CI rule flagging `core/payments-service` would not contradict
+ * this; it would be reasoning from what the change touches, which is the
+ * axis `lib/cost-model/cost.ts` argues for, not the size axis it calls the
+ * likeliest modelling mistake in the milestone. What separates them is D7's
  * `costOfBeingWrong` ($250,000, an estimate of fraud exposure during the
  * window before anyone notices), which has nothing to do with the diff's size; it
  * comes from what the flag CONTROLS. D1 clears its bar on 95%-confidence
