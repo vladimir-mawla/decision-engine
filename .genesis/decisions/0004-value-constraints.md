@@ -201,6 +201,88 @@ inspection:
   pre-existing two-argument form) gets a correct, detectable `matches: false` for those records, never a
   silent false match, but also never `true` without supplying the real signals.
 
+### Amendment — 2026-09-19 (independent verification follow-up): Decision 5's limitation was understated
+
+**Trigger.** Decision 5 above frames the metadata-only replay limitation narrowly: "a value satisfaction
+*contributing to `execute`* cannot replay from the record alone." A second independent verification found
+this is materially broader than that sentence admits, and constructed the reproduction below to prove it —
+not a soundness bug (`replay()` still, correctly, reports `matches: false`; nothing is silently wrong), but
+the ADR's own prose was a real understatement of what actually happens.
+
+**Reproduction.** Two requirements on the same decision:
+
+1. A requirement with a `valueConstraint` that the real signal **clears** — so there is no Gap for it at
+   decide-time.
+2. An ordinary requirement with no `valueConstraint`, whose supplier is `counterparty` (an unrelated
+   missing fact — `absent`, nothing to do with values at all).
+
+At decide-time, requirement 1 produces no Gap (its constraint is cleared) and requirement 2 produces an
+ordinary `absent`/`counterparty` Gap. The original recorded decision is **`ask`**. Replaying *without*
+`knownSignals`: `fromSignalSnapshot` reconstructs requirement 1's evidence as `UNDISCLOSED_VALUE`, which —
+exactly as Decision 5 already documents — can never equal or compare to a real threshold, so it fails the
+constraint that was actually cleared. That **manufactures** a `constraint-violated` Gap for requirement 1
+where none existed originally. Per `gapPrecedenceRank` (`lib/decide/precedence.ts`, DECISION 7),
+`constraint-violated` outranks *every* supplier kind, `human` included. So the manufactured Gap doesn't
+just fail to reproduce requirement 1's own (nonexistent) outcome — it **wins precedence over requirement
+2's real Gap** and the replayed decision comes back **`escalate`**, not `ask`.
+
+**The honest, general statement (replacing the narrower one above).** Decision 5's framing described a
+special case; the real shape of the limitation is:
+
+> Any *satisfied* constraint can retroactively manufacture the single highest-precedence Gap kind
+> (`constraint-violated`) at replay time, purely as an artifact of `UNDISCLOSED_VALUE` failing every
+> operator by construction — and because that manufactured Gap outranks all others, it can change the
+> **reported outcome kind** of the whole replay, not only in the case where the satisfaction fed an
+> `execute`. `ask` → `escalate` is one instance; `defer` → `escalate` is reachable the same way, by the same
+> mechanism, with a `time`-supplier second requirement in place of `counterparty` above.
+
+This is still not a soundness defect: `matches` is `false` in every one of these cases, exactly as it
+should be — the caller is never told a lie. What was wrong was the ADR's own description of *how far* the
+limitation reaches. A reader relying on the original sentence could reasonably conclude "this only matters
+for decisions that executed," and plan around that; that conclusion is false. A regression test
+(`lib/audit/__tests__/value-constraint.test.ts`, "the replay narrowing is broader than Decision 5's original
+prose: an `ask` can replay as `escalate`") pins the `ask` → `escalate` flip specifically, since the shipped
+M5 suite only ever exercised satisfaction-feeding-`execute`.
+
+**Should metadata-only replay manufacture a `constraint-violated` Gap at all? Considered, and rejected for
+now.** The verification is right that this is arguably dishonest in one sense: `fromSignalSnapshot` does not
+know the constraint failed, only that it cannot tell. A cleaner-sounding alternative would give replay its
+own `"could-not-evaluate"` Gap reason (or `ConstraintCheck` reason) for exactly this case, ranked in
+`gapPrecedenceRank` *below* every real gap kind — including `absent`/`stale`/`below-confidence` — so it can
+describe the uncertainty honestly without ever silently outranking a real one. Deliberately **not built**
+in this pass, for reasons that go beyond "out of scope":
+
+1. **It would only ever fire on the replay path.** A live `decide()` call never sees `UNDISCLOSED_VALUE` —
+   only `fromSignalSnapshot` produces it. A Gap variant that exists purely to describe an artifact of one
+   specific reconstruction function is a strange thing to add to `lib/signals/gap.ts`, which today describes
+   real evidence states reachable from any caller, live or replayed.
+2. **Building it correctly would invert this codebase's dependency direction.** For `checkValueConstraint`
+   (`lib/signals/constraint.ts`) to report "could not evaluate" instead of "type-mismatch" specifically for
+   the replay sentinel, `lib/signals` — a lower layer that `lib/audit` imports, never the reverse — would
+   have to recognize `UNDISCLOSED_VALUE` (an `lib/audit/snapshot.ts` concept) by name. That is exactly the
+   layering violation this project has avoided everywhere else (compare: `lib/audit` reproduces small
+   helpers like `readField` locally rather than have `lib/signals`/`lib/contracts` depend upward on it).
+   The alternative — branching inside `analyzeGaps`/`decide()` on "am I being replayed" — is worse: it would
+   make the *live* decision path aware of a replay-only concept, undermining the "decide() runs the exact
+   same code whether called live or from `replay()`" property that ADR 0002/0003 rely on for auditability.
+3. **The cost is already paid honestly, without new surface area.** `replay()`'s contract already states,
+   in its own header comment and now reinforced by this amendment, that a metadata-only reconstruction is a
+   known, bounded limitation with an opt-in escape hatch (`knownSignals`) for a caller who actually holds the
+   original evidence. Widening `Gap`'s variant surface, `gapPrecedenceRank`'s ranking, `RuleTrace`'s shape,
+   and `reasons.ts`'s wording — all to describe a state that only the replay path can ever produce, and that
+   `matches: false` already reports correctly — would be a second escalate-like bifurcation on top of the
+   one this ADR already accepted in Decision 5 (see the "Negative / cost" bullet above on `escalate` having
+   two causes distinguishable only via `RuleTrace`), for a case that is not unsound, only under-described.
+4. **This is a real amendment, not a shrug.** If a future milestone needs `replay()`'s reported outcome
+   *kind* itself to be trustworthy under `constraint-violated` precedence — e.g., an automated system that
+   acts on `replay().replayed.outcome` without also checking `matches` — that need would justify revisiting
+   this. Nothing here has that need today: every existing and new caller of `replay()` in this codebase
+   checks `matches` before trusting `replayed`, so the manufactured Gap's only externally visible effect is
+   the (correct) `matches: false` this project already relies on.
+
+Flagged as a candidate for a future amendment, the same way ADR 0001's own amendment flags the sixth-outcome
+question — argued here, not decided in secret, and not implemented in this pass.
+
 ## Alternatives rejected
 
 - **A predicate closure (`valueCheck?: (v: unknown) => boolean`)** — rejected; see Decision 1. Reproduces

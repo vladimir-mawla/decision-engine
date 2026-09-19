@@ -206,6 +206,64 @@ describe("replay — a value-rejection decision replays exactly, like every othe
     const result = replay(record, []); // deliberately no knownSignals
     expect(result.matches).toBe(true);
   });
+
+  /**
+   * ADR 0004 Decision 5's AMENDMENT (2026-09-19, independent verification
+   * follow-up): the original prose scoped this limitation to "a value
+   * satisfaction contributing to `execute` cannot replay from the record
+   * alone." That sentence undersold it. This is the reproduction the
+   * amendment cites: a SATISFIED constraint (no Gap at decide-time at
+   * all) still poisons replay via `UNDISCLOSED_VALUE`, manufacturing a
+   * `constraint-violated` Gap that, per `gapPrecedenceRank`
+   * (lib/decide/precedence.ts), outranks every supplier kind — including
+   * `human` — and so can change the reported OUTCOME KIND, not merely
+   * fail to reproduce an `execute`. `replay()` still, correctly, reports
+   * `matches: false` here — this is not a soundness bug, only proof that
+   * the ADR's original scoping sentence was too narrow.
+   */
+  it("STATED LIMITATION, amended and proven: a satisfied constraint on one requirement can flip an unrelated requirement's ASK into ESCALATE at replay time, with no knownSignals supplied", () => {
+    const clearedConstraintRequirement = fixtureRequirement({
+      signalKind: "fraud.assessment",
+      description: "the fraud assessment for this transfer",
+      valueConstraint: { op: "equals", value: "clear" },
+    });
+    const clearingSignal = fixtureSignal({
+      id: "fraud-clear-for-flip-test",
+      kind: "fraud.assessment",
+      value: "clear",
+      confidence: 0.95,
+      capturedAtIso: "2026-09-19T11:00:00Z",
+    });
+    // An ordinary, value-constraint-free requirement with NO matching
+    // signal at all — an `absent` Gap, `counterparty` supplier — the
+    // real cause of the original decision's `ask`.
+    const unrelatedRequirement = fixtureRequirement({
+      signalKind: "other.unrelated.fact",
+      description: "an unrelated fact this decision also needs",
+      supplier: { kind: "counterparty", party: "customer" },
+    });
+
+    const record = asDecisionRecord(
+      fixtureInput({
+        requirements: [clearedConstraintRequirement, unrelatedRequirement],
+        signals: [clearingSignal],
+      }),
+    );
+    // The constraint is cleared, so it contributes no Gap at all — the
+    // ONLY Gap at decide-time is the unrelated counterparty gap, and the
+    // recorded outcome is `ask`, never `escalate`.
+    expect(record.decision.outcome).toBe("ask");
+
+    const result = replay(record, []); // deliberately no knownSignals
+    // Honestly detectable divergence, not a crash and not a silent match.
+    expect(result.ruleSetMatches).toBe(true);
+    expect(result.matches).toBe(false);
+    // The manufactured constraint-violated Gap (from `UNDISCLOSED_VALUE`
+    // failing the cleared constraint) outranks the real counterparty
+    // gap, so the replayed outcome KIND itself flips — not just its
+    // evidence — from `ask` to `escalate`.
+    expect(result.replayed.outcome).toBe("escalate");
+  });
 });
 
 describe("parseAuditRecord — a value-rejection record round-trips through JSON", () => {
