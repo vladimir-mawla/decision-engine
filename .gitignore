@@ -43,3 +43,8 @@ CLAUDE.md
 
 # Test output
 coverage/
+
+# M6 demo build — `npm run demo:domains` compiles lib/+scripts/ here so it
+# can run under plain `node` (no ts-node/tsx dependency); regenerated on
+# every run, never committed.
+.demo-build/
