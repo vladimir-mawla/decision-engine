@@ -643,6 +643,35 @@ button {
   color: var(--text-faint);
 }
 
+.stakes-explorer__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin: 0.85rem 0 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-sunken);
+  border-radius: 6px;
+}
+
+.stakes-explorer__evidence-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 9rem;
+}
+
+.stakes-explorer__evidence-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.stakes-explorer__evidence-value {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
 /* ── reduced motion & small screens ─────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -657,6 +686,10 @@ button {
     padding: 1.5rem 0.85rem 3rem;
   }
   .decision-card__stakes {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .stakes-explorer__evidence {
     flex-direction: column;
     gap: 0.6rem;
   }
