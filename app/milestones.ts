@@ -23,7 +23,7 @@ export interface Milestone {
 
 export const MILESTONES: readonly Milestone[] = [
   { id: 1, title: "Contracts: the five outcomes and the cost model", status: "done" },
-  { id: 2, title: "Deploy a live skeleton to Vercel", status: "in-progress" },
+  { id: 2, title: "Deploy a live skeleton to Vercel", status: "done" },
   { id: 3, title: "Signals: typed evidence with provenance", status: "done" },
   { id: 4, title: "The decision engine", status: "done" },
   { id: 5, title: "The audit trail", status: "done" },
