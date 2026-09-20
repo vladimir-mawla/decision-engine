@@ -6,6 +6,7 @@ import { parseCostOfBeingWrong } from "../lib/cost-model/cost.js";
 import type { Action } from "../lib/contracts/action.js";
 import type { DecisionAuditRecord } from "../lib/audit/record.js";
 import { recordDecision } from "../lib/audit/record.js";
+import { discloseSignalValue } from "../lib/audit/disclose.js";
 import { ALL_DOMAINS } from "../lib/domains/index.js";
 import type { DomainCase } from "../lib/domains/types.js";
 import { DecisionCard } from "./DecisionCard.js";
@@ -91,6 +92,56 @@ if (d7Case === undefined) {
  */
 const baseCase: DomainCase = d7Case;
 const d1Case = codeDeploy?.cases.find((c) => c.id === "deploy-d1-flag-toggle-admin-tool");
+
+/**
+ * THE DIFF SHAPE AND APPROVAL COUNT, READ HONESTLY OR NOT AT ALL.
+ *
+ * These two facts back the "identical diffs, identical evidence" half of
+ * this widget's claim — up to now that claim had no on-screen support
+ * beyond prose ("one line changed" in app/page.tsx). Both numbers below
+ * are computed ONCE, at module scope, from `baseCase` (D7's frozen
+ * fixture) — never inside the component body — specifically so it is
+ * structurally obvious they cannot react to the cost/reversibility state
+ * `StakesExplorer` owns: `buildRecord` only ever overrides
+ * `action.costOfBeingWrong`/`action.reversibility` (see above), so
+ * `action.parameters` and `signals` are exactly what every stakes
+ * combination this widget renders shares.
+ *
+ * `filesChanged`/`linesChanged` are plain `Action.parameters` fields
+ * (never a `Signal`), so reading them is a simple, guarded property read
+ * — no privacy boundary applies. The review-approval COUNT is different:
+ * `lib/signals/signal.ts` deliberately keeps a `Signal`'s real `value`
+ * unreachable except through `.read()`, and every other consumer in this
+ * app (`EvidenceList`, `AuditTrail`) intentionally works from metadata
+ * alone (kind/source/confidence/age — see EvidenceList's own header
+ * comment). `lib/audit/disclose.ts` exists FOR EXACTLY THIS: "a human
+ * reading the audit trail" wanting to sanity-check what a signal actually
+ * asserted. Using it here, once, for a domain-owned field this project's
+ * own narration already promises ("two approvals") is that named,
+ * deliberate call site, not a workaround. If either read fails (missing
+ * data, or a `SignalReading` that is `"stale"`/`"clock-inconsistency"`
+ * rather than `"fresh"`), the corresponding constant is `null` and the
+ * component renders nothing for it — no invented number ever reaches the
+ * screen.
+ */
+const diffParameters = baseCase.action.parameters as Readonly<Record<string, unknown>>;
+const filesChangedValue = diffParameters.filesChanged;
+const linesChangedValue = diffParameters.linesChanged;
+const diffSummary =
+  typeof filesChangedValue === "number" && typeof linesChangedValue === "number"
+    ? `${linesChangedValue} line${linesChangedValue === 1 ? "" : "s"} changed, ${filesChangedValue} file${filesChangedValue === 1 ? "" : "s"}`
+    : null;
+
+const approvalsRequirement = baseCase.requirements.find((r) => r.signalKind === "deploy.reviewApprovals.count");
+const approvalsSignal = baseCase.signals.find((s) => s.kind === "deploy.reviewApprovals.count");
+const approvalsReading =
+  approvalsRequirement && approvalsSignal
+    ? discloseSignalValue(approvalsSignal, approvalsRequirement.maxAge, baseCase.now).reading
+    : null;
+const approvalsSummary =
+  approvalsReading?.status === "fresh" && typeof approvalsReading.value === "number"
+    ? `${approvalsReading.value} approval${approvalsReading.value === 1 ? "" : "s"} recorded`
+    : null;
 
 const PRESETS: readonly Preset[] = [
   d1Case
@@ -237,9 +288,27 @@ export function StakesExplorer(): JSX.Element {
           </div>
         </div>
 
+        {(diffSummary || approvalsSummary) && (
+          <div className="stakes-explorer__evidence">
+            {diffSummary && (
+              <div className="stakes-explorer__evidence-item">
+                <span className="stakes-explorer__evidence-label">Diff</span>
+                <span className="mono stakes-explorer__evidence-value">{diffSummary}</span>
+              </div>
+            )}
+            {approvalsSummary && (
+              <div className="stakes-explorer__evidence-item">
+                <span className="stakes-explorer__evidence-label">Review approvals</span>
+                <span className="mono stakes-explorer__evidence-value">{approvalsSummary}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="stakes-explorer__note">
-          The evidence below never changes {"—"} review approvals, CI status, and a static-analysis
-          reading, all exactly as recorded for PR #5402 (deploy-d7). Only this action&rsquo;s stakes move.
+          The evidence below never changes {"—"} the diff above, review approvals, CI status, and a
+          static-analysis reading, all exactly as recorded for PR #5402 (deploy-d7). Only this
+          action&rsquo;s stakes move.
         </p>
         <p className="stakes-explorer__note">
           Every drag re-runs the full decision engine {"—"} outcome, confidence, and audit trail
